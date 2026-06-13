@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🍬 消消乐</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .match-board { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; width: 100%; max-width: 440px; background: #D4C5C9; border-radius: 16px; padding: 6px; touch-action: manipulation; }
+    .match-cell { aspect-ratio: 1; background: #E8DDE0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 2rem; cursor: pointer; transition: transform 0.1s, background 0.1s; user-select: none; -webkit-user-select: none; }
+    .match-cell.selected { background: var(--warm-yellow); transform: scale(1.08); box-shadow: 0 0 0 3px var(--peach); }
+    .match-cell.matched { animation: matchPop 0.3s var(--ease-bounce); }
+    @keyframes matchPop { 0% { transform: scale(1); } 50% { transform: scale(1.2); opacity: 0.7; } 100% { transform: scale(0); opacity: 0; } }
+    .match-cell.fall { animation: fallIn 0.3s ease-out; }
+    @keyframes fallIn { 0% { transform: translateY(-60px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+    @media (max-width: 450px) { .match-board { max-width: 340px; gap: 2px; padding: 4px; } .match-cell { font-size: 1.5rem; border-radius: 6px; } }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🍬 消消乐</span>
+  </div>
+  <div class="score-bar">
+    <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
+    <span class="score-item">🎯 目标: <strong id="target">500</strong></span>
+    <span class="score-item">📊 <strong id="level">1</strong></span>
+  </div>
+  <div class="game-board"><div class="match-board" id="board"></div></div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const boardEl = document.getElementById('board');
+  const scoreEl = document.getElementById('score');
+  const targetEl = document.getElementById('target');
+  const levelEl = document.getElementById('level');
+
+  const CANDIES = ['🍎','🍊','🍇','🍓','🍒','🍑'];
+  const ROWS = 8, COLS = 8;
+  let grid = [], selected = null, score = 0, level = 1, targetScore = 500;
+  let animating = false;
+
+  function init() {
+    score = 0; level = 1; targetScore = 500; selected = null; animating = false;
+    scoreEl.textContent = '0'; targetEl.textContent = targetScore; levelEl.textContent = '1';
+    grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => pickRandom(CANDIES)));
+    // Remove initial matches
+    removeAllMatches();
+    render();
+  }
+
+  function render() {
+    boardEl.innerHTML = '';
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div'); cell.className = 'match-cell';
+        cell.textContent = grid[r][c];
+        if (selected && selected.r === r && selected.c === c) cell.classList.add('selected');
+        cell.addEventListener('click', () => cellClick(r, c));
+        boardEl.appendChild(cell);
+      }
+  }
+
+  function cellClick(r, c) {
+    if (animating) return;
+    if (!selected) { selected = { r, c }; render(); return; }
+
+    const dr = Math.abs(r - selected.r), dc = Math.abs(c - selected.c);
+    if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+      // Swap
+      swap(selected.r, selected.c, r, c);
+      render();
+      const matches = findMatches();
+      if (matches.size > 0) {
+        animating = true;
+        processMatches(matches, () => { animating = false; checkLevelUp(); });
+      } else {
+        // Swap back
+        setTimeout(() => { swap(selected.r, selected.c, r, c); render(); }, 200);
+      }
+    }
+    selected = null;
+    render();
+  }
+
+  function swap(r1, c1, r2, c2) { const tmp = grid[r1][c1]; grid[r1][c1] = grid[r2][c2]; grid[r2][c2] = tmp; }
+
+  function findMatches() {
+    const matched = new Set();
+    // Horizontal
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS - 2; c++) {
+        if (grid[r][c] === grid[r][c+1] && grid[r][c] === grid[r][c+2]) {
+          let end = c + 2;
+          while (end + 1 < COLS && grid[r][end + 1] === grid[r][c]) end++;
+          for (let i = c; i <= end; i++) matched.add(r * COLS + i);
+          c = end;
+        }
+      }
+    }
+    // Vertical
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS - 2; r++) {
+        if (grid[r][c] === grid[r+1][c] && grid[r][c] === grid[r+2][c]) {
+          let end = r + 2;
+          while (end + 1 < ROWS && grid[end + 1][c] === grid[r][c]) end++;
+          for (let i = r; i <= end; i++) matched.add(i * COLS + c);
+          r = end;
+        }
+      }
+    }
+    return matched;
+  }
+
+  function removeAllMatches() {
+    let matches = findMatches();
+    while (matches.size > 0) {
+      matches.forEach(key => { const r = Math.floor(key / COLS), c = key % COLS; grid[r][c] = pickRandom(CANDIES); });
+      matches = findMatches();
+    }
+  }
+
+  function processMatches(matches, callback) {
+    if (matches.size === 0) { callback(); return; }
+
+    // Animate match removal
+    const cells = boardEl.children;
+    matches.forEach(key => { if (cells[key]) cells[key].classList.add('matched'); });
+
+    const points = matches.size * 10 + (matches.size > 5 ? matches.size * 5 : 0);
+    score += points;
+    scoreEl.textContent = score;
+
+    setTimeout(() => {
+      // Remove matched
+      matches.forEach(key => { const r = Math.floor(key / COLS), c = key % COLS; grid[r][c] = ''; });
+
+      // Collapse columns
+      for (let c = 0; c < COLS; c++) {
+        let writeRow = ROWS - 1;
+        for (let r = ROWS - 1; r >= 0; r--) {
+          if (grid[r][c] !== '') { grid[writeRow][c] = grid[r][c]; writeRow--; }
+        }
+        for (let r = writeRow; r >= 0; r--) grid[r][c] = pickRandom(CANDIES);
+      }
+
+      render();
+      // Mark new cells with fall animation
+      const newCells = boardEl.children;
+      for (let c = 0; c < COLS; c++) {
+        let firstEmpty = 0;
+        for (let r = 0; r < ROWS; r++) { if (grid[r][c] === '') { firstEmpty = Math.max(firstEmpty, r + 1); } }
+        for (let r = 0; r < ROWS; r++) { if (r < firstEmpty && newCells[r * COLS + c]) newCells[r * COLS + c].classList.add('fall'); }
+      }
+
+      // Check for new matches (cascade)
+      setTimeout(() => {
+        const newMatches = findMatches();
+        processMatches(newMatches, callback);
+      }, 350);
+    }, 300);
+  }
+
+  function checkLevelUp() {
+    if (score >= targetScore) {
+      level++;
+      targetScore = level * 500;
+      targetEl.textContent = targetScore;
+      levelEl.textContent = level;
+      showConfetti(40);
+      showModal({
+        emoji: '🎉', title: `第 ${level} 关！`,
+        message: `得分: ${score}\n新目标: ${targetScore}`,
+        buttons: [{ text: '继续', cls: 'btn-primary', onClick: () => {} }]
+      });
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
