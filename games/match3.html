@@ -69,23 +69,28 @@
     if (animating) return;
     if (!selected) { selected = { r, c }; render(); return; }
 
+    // Deselect if clicking same cell
+    if (selected.r === r && selected.c === c) { selected = null; render(); return; }
+
     const dr = Math.abs(r - selected.r), dc = Math.abs(c - selected.c);
     if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
       // Swap
       animating = true;
       swap(selected.r, selected.c, r, c);
+      selected = null;
       render();
       const matches = findMatches();
       if (matches.size > 0) {
         processMatches(matches, () => { animating = false; checkLevelUp(); });
       } else {
-        // Swap back
+        // Swap back after delay
         setTimeout(() => { swap(selected.r, selected.c, r, c); render(); animating = false; }, 250);
       }
     } else {
-      render(); // Just select the new cell
+      // Select the new cell instead
+      selected = { r, c };
+      render();
     }
-    selected = null;
   }
 
   function swap(r1, c1, r2, c2) { const tmp = grid[r1][c1]; grid[r1][c1] = grid[r2][c2]; grid[r2][c2] = tmp; }
