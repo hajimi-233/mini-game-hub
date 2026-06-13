@@ -7,8 +7,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
   <style>
-    .grid-2048 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; width: 100%; max-width: 480px; background: #D4C5C9; border-radius: 16px; padding: 14px; }
-    .cell-2048 { aspect-ratio: 1; background: #E8DDE0; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 2rem; color: #776e70; transition: all 0.12s var(--ease-bounce); }
+    .grid-2048 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; width: 100%; max-width: 480px; background: #D4C5C9; border-radius: 16px; padding: 14px; position: relative; }
+    .cell-2048 { aspect-ratio: 1; background: #E8DDE0; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 2rem; color: #776e70; transition: all 0.12s var(--ease-bounce); position: relative; }
     .cell-2048[data-value="2"] { background: #FFFBF7; color: #5C5C6E; }
     .cell-2048[data-value="4"] { background: #FFE8D6; color: #5C5C6E; }
     .cell-2048[data-value="8"] { background: #FFDAC1; color: #5C5C6E; }
@@ -25,6 +25,11 @@
     .cell-2048.merged { animation: mergePop 0.25s var(--ease-bounce); }
     @keyframes mergePop { 0% { transform: scale(0.7); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
     @keyframes tileWin { 0% { transform: scale(1); } 25% { transform: scale(1.25); } 50% { transform: scale(0.95); } 75% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    .fly-score { position: absolute; font-family: var(--font-display); font-size: 1.4rem; color: var(--pink); pointer-events: none; z-index: 5; animation: flyUp 0.7s ease-out forwards; }
+    @keyframes flyUp { 0% { opacity: 1; transform: translateY(0) scale(0.5); } 30% { opacity: 1; transform: translateY(-20px) scale(1.2); } 100% { opacity: 0; transform: translateY(-60px) scale(1); } }
+    .achievement-toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--warm-yellow); border-radius: 16px; padding: 12px 24px; font-family: var(--font-display); font-size: 1.1rem; z-index: 60; box-shadow: var(--shadow-hover); animation: toastIn 0.5s var(--ease-bounce), toastOut 0.5s 2s ease forwards; }
+    @keyframes toastIn { 0% { transform: translateX(-50%) translateY(-80px); opacity: 0; } 100% { transform: translateX(-50%) translateY(0); opacity: 1; } }
+    @keyframes toastOut { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-30px); } }
     @media (max-width: 500px) { .grid-2048 { gap: 8px; max-width: 360px; padding: 8px; } .cell-2048 { font-size: 1.5rem; border-radius: 8px; } }
   </style>
 </head>
@@ -39,7 +44,7 @@
     <span class="score-item">⭐ 最佳: <strong id="best">0</strong></span>
   </div>
   <div style="display:flex;gap:8px;margin-bottom:8px;">
-    <button class="btn btn-mint" id="undoBtn" style="font-size:0.85rem;padding:8px 16px;">↩ 撤销</button>
+    <button class="btn btn-mint" id="undoBtn" style="font-size:0.85rem;padding:8px 16px;opacity:0.4;">↩ 撤销</button>
   </div>
   <div class="game-board"><div class="grid-2048" id="grid"></div></div>
   <div class="dpad">
@@ -60,10 +65,11 @@
 
   let grid = [], score = 0;
   let history = [];
+  const seenTiles = new Set();
 
   function init() {
     grid = Array.from({ length: 4 }, () => Array(4).fill(0));
-    score = 0; history = [];
+    score = 0; history = []; seenTiles.clear();
     scoreEl.textContent = '0';
     bestEl.textContent = loadBestScore('2048');
     undoBtn.style.opacity = '0.4';
@@ -90,6 +96,20 @@
     grid[r][c] = Math.random() < 0.9 ? 2 : 4;
   }
 
+  function showFlyScore(cellEl, points) {
+    const fly = document.createElement('div'); fly.className = 'fly-score'; fly.textContent = '+' + points;
+    cellEl.appendChild(fly);
+    setTimeout(() => fly.remove(), 700);
+  }
+
+  function showAchievement(tile) {
+    const toast = document.createElement('div'); toast.className = 'achievement-toast';
+    const icons = { 128: '🌟', 256: '🔥', 512: '💎', 1024: '👑', 2048: '🏆' };
+    toast.textContent = `${icons[tile] || '🎯'} 首次合成 ${tile}！`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  }
+
   function render(mergedSet = null, newTiles = null) {
     gridEl.innerHTML = '';
     for (let r = 0; r < 4; r++)
@@ -97,7 +117,7 @@
         const cell = document.createElement('div'); cell.className = 'cell-2048';
         const v = grid[r][c]; cell.textContent = v || ''; cell.dataset.value = v || '';
         const key = r * 4 + c;
-        if (mergedSet && mergedSet.has(key)) cell.classList.add('merged');
+        if (mergedSet && mergedSet.has(key)) { cell.classList.add('merged'); }
         if (newTiles && newTiles.has(key)) cell.classList.add('new-tile');
         gridEl.appendChild(cell);
       }
@@ -105,28 +125,20 @@
 
   function move(dir) {
     const old = grid.map(row => [...row]);
-    let merged = new Set(), newTiles = new Set();
+    let merged = new Set(), newTiles = new Set(), mergePoints = 0;
 
     function slideRow(row) {
       let arr = row.filter(v => v !== 0); const mergedIdx = [];
-      for (let i = 0; i < arr.length - 1; i++) { if (arr[i] === arr[i + 1]) { arr[i] *= 2; score += arr[i]; mergedIdx.push(i); arr.splice(i + 1, 1); } }
+      for (let i = 0; i < arr.length - 1; i++) { if (arr[i] === arr[i + 1]) { arr[i] *= 2; mergePoints += arr[i]; mergedIdx.push(i); arr.splice(i + 1, 1); } }
       while (arr.length < 4) arr.push(0);
       return { arr, mergedIdx };
     }
 
     const processors = {
-      left: () => {
-        for (let r = 0; r < 4; r++) { const { arr, mergedIdx } = slideRow(grid[r]); mergedIdx.forEach(i => merged.add(r * 4 + i)); for (let c = 0; c < 4; c++) { if (grid[r][c] !== arr[c] && arr[c] !== 0) newTiles.add(r * 4 + c); grid[r][c] = arr[c]; } }
-      },
-      right: () => {
-        for (let r = 0; r < 4; r++) { const rev = [...grid[r]].reverse(); const { arr, mergedIdx } = slideRow(rev); const result = [...arr].reverse(); mergedIdx.forEach(i => merged.add(r * 4 + (3 - i))); for (let c = 0; c < 4; c++) { if (grid[r][c] !== result[c] && result[c] !== 0) newTiles.add(r * 4 + c); grid[r][c] = result[c]; } }
-      },
-      up: () => {
-        for (let c = 0; c < 4; c++) { let col = [grid[0][c],grid[1][c],grid[2][c],grid[3][c]]; const { arr, mergedIdx } = slideRow(col); mergedIdx.forEach(i => merged.add(i * 4 + c)); for (let r = 0; r < 4; r++) { if (grid[r][c] !== arr[r] && arr[r] !== 0) newTiles.add(r * 4 + c); grid[r][c] = arr[r]; } }
-      },
-      down: () => {
-        for (let c = 0; c < 4; c++) { let col = [grid[3][c],grid[2][c],grid[1][c],grid[0][c]]; const { arr, mergedIdx } = slideRow(col); const result = [...arr].reverse(); mergedIdx.forEach(i => merged.add((3 - i) * 4 + c)); for (let r = 0; r < 4; r++) { if (grid[r][c] !== result[r] && result[r] !== 0) newTiles.add(r * 4 + c); grid[r][c] = result[r]; } }
-      }
+      left: () => { for (let r = 0; r < 4; r++) { const { arr, mergedIdx } = slideRow(grid[r]); mergedIdx.forEach(i => merged.add(r * 4 + i)); for (let c = 0; c < 4; c++) { if (grid[r][c] !== arr[c] && arr[c] !== 0) newTiles.add(r * 4 + c); grid[r][c] = arr[c]; } } },
+      right: () => { for (let r = 0; r < 4; r++) { const rev = [...grid[r]].reverse(); const { arr, mergedIdx } = slideRow(rev); const result = [...arr].reverse(); mergedIdx.forEach(i => merged.add(r * 4 + (3 - i))); for (let c = 0; c < 4; c++) { if (grid[r][c] !== result[c] && result[c] !== 0) newTiles.add(r * 4 + c); grid[r][c] = result[c]; } } },
+      up: () => { for (let c = 0; c < 4; c++) { let col = [grid[0][c],grid[1][c],grid[2][c],grid[3][c]]; const { arr, mergedIdx } = slideRow(col); mergedIdx.forEach(i => merged.add(i * 4 + c)); for (let r = 0; r < 4; r++) { if (grid[r][c] !== arr[r] && arr[r] !== 0) newTiles.add(r * 4 + c); grid[r][c] = arr[r]; } } },
+      down: () => { for (let c = 0; c < 4; c++) { let col = [grid[3][c],grid[2][c],grid[1][c],grid[0][c]]; const { arr, mergedIdx } = slideRow(col); const result = [...arr].reverse(); mergedIdx.forEach(i => merged.add((3 - i) * 4 + c)); for (let r = 0; r < 4; r++) { if (grid[r][c] !== result[r] && result[r] !== 0) newTiles.add(r * 4 + c); grid[r][c] = result[r]; } } }
     };
     processors[dir]();
 
@@ -134,10 +146,24 @@
     if (!changed) return;
 
     saveState();
+    score += mergePoints;
     addRandomTile();
     scoreEl.textContent = score;
     if (score > loadBestScore('2048')) { saveBestScore('2048', score); bestEl.textContent = score; }
     render(merged, newTiles);
+
+    // Fly score animations on merged cells
+    if (mergePoints > 0) {
+      setTimeout(() => {
+        merged.forEach(key => {
+          const cell = gridEl.children[key];
+          if (cell) showFlyScore(cell, grid[Math.floor(key / 4)][key % 4]);
+        });
+      }, 50);
+    }
+
+    // Achievement check
+    grid.forEach(row => row.forEach(v => { if (v >= 128 && !seenTiles.has(v)) { seenTiles.add(v); showAchievement(v); } }));
 
     if (grid.some(row => row.some(v => v >= 2048))) {
       setTimeout(() => { showConfetti(80); showModal({ emoji: '🎉', title: '恭喜！', message: `你达到了 2048！\n得分: ${score}`, buttons: [{ text: '继续挑战', cls: 'btn-primary', onClick: () => {} }, { text: '再来一局', cls: 'btn-mint', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);

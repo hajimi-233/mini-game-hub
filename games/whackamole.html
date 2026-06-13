@@ -10,12 +10,16 @@
     .mole-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; max-width: 420px; padding: 16px; }
     .mole-hole { position: relative; aspect-ratio: 1; min-height: 100px; background: var(--peach); border-radius: 50%; overflow: hidden; cursor: pointer; box-shadow: inset 0 6px 12px rgba(0,0,0,0.1); -webkit-tap-highlight-color: transparent; transition: background 0.2s; }
     .mole-hole.golden { background: #FFF1B0; }
+    .mole-hole.bomb { background: #FFB5C2; }
+    .mole-hole.slowmo { background: #B5D8EB; }
+    .mole-hole.double { background: #E2F0CB; }
     .mole-hole::after { content: ''; position: absolute; bottom: 0; left: 10%; right: 10%; height: 40%; background: rgba(0,0,0,0.06); border-radius: 50%; }
     .mole { position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 100%); font-size: 3.6rem; line-height: 1; transition: transform 0.12s ease-out; pointer-events: none; }
     .mole.up { transform: translate(-50%, 10%); }
     .mole.whacked { transform: translate(-50%, 10%) scale(0.3); transition: transform 0.1s ease; }
     .combo-popup { position: fixed; pointer-events: none; font-family: var(--font-display); font-size: 1.6rem; color: #FF6B6B; z-index: 60; animation: comboUp 0.8s ease-out forwards; }
     @keyframes comboUp { 0% { opacity: 1; transform: translateY(0) scale(0.5); } 30% { opacity: 1; transform: translateY(-30px) scale(1.3); } 100% { opacity: 0; transform: translateY(-80px) scale(1); } }
+    .powerup-indicator { display: inline-block; font-size: 0.9rem; padding: 2px 8px; border-radius: 8px; margin-left: 4px; }
     @media (max-width: 450px) { .mole-board { gap: 10px; max-width: 320px; } .mole { font-size: 2.6rem; } .mole-hole { min-height: 80px; } }
   </style>
 </head>
@@ -28,6 +32,7 @@
   <div class="score-bar">
     <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
     <span class="score-item">⚡ 连击: <strong id="combo">x1</strong></span>
+    <span class="score-item" id="powerupLabel"></span>
     <span class="score-item">⏱️ <strong id="timer">30</strong></span>
   </div>
   <button class="btn btn-primary" id="startBtn">开始游戏</button>
@@ -39,10 +44,11 @@
 (function() {
   const TOTAL = 9, GAME_DURATION = 30;
   let score = 0, timeLeft = GAME_DURATION, gameRunning = false, gameTimer = null, moleTimer = null;
-  let activeMoles = [], comboCount = 0, comboTimer = null;
-  let spawnInterval = 800;
+  let activeMoles = [], comboCount = 0, comboTimer = null, spawnInterval = 800;
+  let powerUps = { slowmo: false, double: false, slowmoEnd: 0, doubleEnd: 0 };
 
   const scoreEl = document.getElementById('score'), comboEl = document.getElementById('combo'), timerEl = document.getElementById('timer');
+  const powerupLabel = document.getElementById('powerupLabel');
   const startBtn = document.getElementById('startBtn'), boardEl = document.getElementById('moleBoard');
   const moleEls = [];
 
@@ -54,19 +60,62 @@
     moleEls.push({ hole, mole });
   }
 
+  function updatePowerUpLabel() {
+    const parts = [];
+    const now = Date.now();
+    if (powerUps.slowmo && now < powerUps.slowmoEnd) parts.push('🐢减速 ' + Math.ceil((powerUps.slowmoEnd - now) / 1000) + 's');
+    if (powerUps.double && now < powerUps.doubleEnd) parts.push('x2加倍 ' + Math.ceil((powerUps.doubleEnd - now) / 1000) + 's');
+    powerupLabel.textContent = parts.join(' ');
+  }
+
   function whack(index) {
     if (!gameRunning) return;
     const moleIdx = activeMoles.findIndex(m => m.index === index && m.visible);
     if (moleIdx === -1) return;
 
-    const isGolden = activeMoles[moleIdx].golden;
-    const points = isGolden ? 3 : 1;
+    const m = activeMoles[moleIdx];
+
+    // Bomb mole — penalty
+    if (m.type === 'bomb') {
+      score = Math.max(0, score - 5);
+      scoreEl.textContent = score;
+      comboCount = 0; comboEl.textContent = 'x1';
+      m.visible = false;
+      moleEls[index].mole.classList.remove('up');
+      moleEls[index].mole.classList.add('whacked');
+      moleEls[index].hole.classList.remove('bomb');
+      showComboPopup(index, '💥-5', '#FF4444');
+      setTimeout(() => { moleEls[index].mole.classList.remove('whacked'); moleEls[index].mole.textContent = '🐹'; }, 150);
+      return;
+    }
+
+    // Power-up mole
+    if (m.type === 'powerup') {
+      const ptypes = ['slowmo', 'double'];
+      const ptype = m.subType || pickRandom(ptypes);
+      if (ptype === 'slowmo') { powerUps.slowmo = true; powerUps.slowmoEnd = Date.now() + 5000; }
+      if (ptype === 'double') { powerUps.double = true; powerUps.doubleEnd = Date.now() + 5000; }
+      showComboPopup(index, ptype === 'slowmo' ? '🐢减速!' : 'x2加倍!', '#4A90D9');
+      updatePowerUpLabel();
+      // Clear powerup after timeout
+      setTimeout(updatePowerUpLabel, 5500);
+      m.visible = false;
+      moleEls[index].mole.classList.remove('up');
+      moleEls[index].mole.classList.add('whacked');
+      moleEls[index].hole.classList.remove('slowmo', 'double');
+      setTimeout(() => { moleEls[index].mole.classList.remove('whacked'); moleEls[index].mole.textContent = '🐹'; }, 150);
+      return;
+    }
+
+    const now = Date.now();
+    const isDoubled = powerUps.double && now < powerUps.doubleEnd;
+    const basePoints = m.type === 'golden' ? 3 : 1;
     comboCount++;
     clearTimeout(comboTimer);
-    comboTimer = setTimeout(() => { comboCount = 0; comboEl.textContent = 'x1'; }, 1200);
+    comboTimer = setTimeout(() => { comboCount = 0; comboEl.textContent = 'x1'; updatePowerUpLabel(); }, 1200);
     comboEl.textContent = 'x' + comboCount;
 
-    const bonusPoints = points * comboCount;
+    const bonusPoints = basePoints * comboCount * (isDoubled ? 2 : 1);
     score += bonusPoints;
     scoreEl.textContent = score;
 
@@ -75,18 +124,19 @@
     moleEls[index].mole.classList.add('whacked');
     moleEls[index].hole.classList.remove('golden');
 
-    // Combo popup
-    if (comboCount >= 2) {
-      const popup = document.createElement('div'); popup.className = 'combo-popup';
-      popup.textContent = comboCount >= 6 ? `🔥 ${comboCount}连击!` : comboCount >= 4 ? `💥${comboCount}连击!` : `${comboCount}连击!`;
-      const rect = moleEls[index].hole.getBoundingClientRect();
-      popup.style.left = rect.left + rect.width / 2 - 40 + 'px';
-      popup.style.top = rect.top - 10 + 'px';
-      document.body.appendChild(popup);
-      setTimeout(() => popup.remove(), 900);
-    }
+    if (comboCount >= 2) showComboPopup(index, (isDoubled ? 'x2 ' : '') + comboCount + '连击! ' + bonusPoints + '分', '#FF6B6B');
 
-    setTimeout(() => { moleEls[index].mole.classList.remove('whacked'); }, 150);
+    if (powerUps.slowmo && now < powerUps.slowmoEnd) updatePowerUpLabel();
+    setTimeout(() => { moleEls[index].mole.classList.remove('whacked'); moleEls[index].mole.textContent = '🐹'; }, 150);
+  }
+
+  function showComboPopup(index, text, color) {
+    const popup = document.createElement('div'); popup.className = 'combo-popup'; popup.textContent = text; popup.style.color = color;
+    const rect = moleEls[index].hole.getBoundingClientRect();
+    popup.style.left = rect.left + rect.width / 2 - 40 + 'px';
+    popup.style.top = rect.top - 10 + 'px';
+    document.body.appendChild(popup);
+    setTimeout(() => popup.remove(), 900);
   }
 
   function popRandomMole() {
@@ -96,43 +146,55 @@
     if (available.length === 0) return;
 
     const index = pickRandom(available);
-    const isGolden = score > 8 && Math.random() < 0.15;
-    activeMoles.push({ index, visible: true, golden: isGolden });
-    if (isGolden) {
-      moleEls[index].mole.textContent = '🌟';
-      moleEls[index].hole.classList.add('golden');
-    } else {
-      moleEls[index].mole.textContent = '🐹';
-    }
-    moleEls[index].mole.classList.add('up');
+    const now = Date.now();
+    let type = 'normal';
+    const r = Math.random();
+    if (score > 3 && r < 0.08 && !powerUps.slowmo && !powerUps.double) type = 'powerup';
+    else if (r < 0.06 && score > 10) type = 'bomb';
+    else if (r < 0.2 && score > 8) type = 'golden';
 
-    const showDuration = Math.max(450, 1000 - score * 15);
+    const moleData = { index, visible: true, type };
+    if (type === 'powerup') moleData.subType = Math.random() < 0.5 ? 'slowmo' : 'double';
+    activeMoles.push(moleData);
+
+    const el = moleEls[index];
+    if (type === 'golden') { el.mole.textContent = '🌟'; el.hole.classList.add('golden'); }
+    else if (type === 'bomb') { el.mole.textContent = '💣'; el.hole.classList.add('bomb'); }
+    else if (type === 'powerup') {
+      el.mole.textContent = moleData.subType === 'slowmo' ? '🐢' : 'x2';
+      el.hole.classList.add(moleData.subType === 'slowmo' ? 'slowmo' : 'double');
+    }
+    else { el.mole.textContent = '🐹'; }
+    el.mole.classList.add('up');
+
+    const showDuration = powerUps.slowmo && now < powerUps.slowmoEnd ?
+      Math.max(700, 1400 - score * 20) : Math.max(400, 900 - score * 15);
     setTimeout(() => {
       const m = activeMoles.find(m => m.index === index && m.visible);
-      if (m) { m.visible = false; moleEls[index].mole.classList.remove('up'); moleEls[index].hole.classList.remove('golden'); moleEls[index].mole.textContent = '🐹'; }
-    }, isGolden ? showDuration * 0.7 : showDuration);
+      if (m) { m.visible = false; el.mole.classList.remove('up'); el.hole.classList.remove('golden', 'bomb', 'slowmo', 'double'); el.mole.textContent = '🐹'; }
+    }, (type === 'bomb' || type === 'powerup') ? showDuration * 0.6 : showDuration);
   }
 
   function startGame() {
     score = 0; timeLeft = GAME_DURATION; activeMoles = []; comboCount = 0; spawnInterval = 800;
-    scoreEl.textContent = '0'; comboEl.textContent = 'x1'; timerEl.textContent = timeLeft;
+    powerUps = { slowmo: false, double: false, slowmoEnd: 0, doubleEnd: 0 };
+    scoreEl.textContent = '0'; comboEl.textContent = 'x1'; timerEl.textContent = timeLeft; powerupLabel.textContent = '';
     gameRunning = true; startBtn.textContent = '游戏中...'; startBtn.disabled = true;
-    moleEls.forEach(m => { m.mole.classList.remove('up', 'whacked'); m.mole.textContent = '🐹'; m.hole.classList.remove('golden'); });
+    moleEls.forEach(m => { m.mole.classList.remove('up', 'whacked'); m.mole.textContent = '🐹'; m.hole.classList.remove('golden', 'bomb', 'slowmo', 'double'); });
 
-    gameTimer = setInterval(() => { timeLeft--; timerEl.textContent = timeLeft; if (timeLeft <= 0) endGame(); }, 1000);
+    gameTimer = setInterval(() => { timeLeft--; timerEl.textContent = timeLeft; updatePowerUpLabel(); if (timeLeft <= 0) endGame(); }, 1000);
     moleTimer = setInterval(() => {
       const countToSpawn = score > 20 ? randomInt(2, 3) : randomInt(1, 2);
-      for (let i = 0; i < countToSpawn; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 150); }
-      // Speed up over time
-      const newInterval = Math.max(400, 800 - (score > 30 ? 400 : score * 12));
-      if (newInterval !== spawnInterval) { clearInterval(moleTimer); spawnInterval = newInterval; moleTimer = setInterval(() => { const c = score > 20 ? randomInt(2, 3) : randomInt(1, 2); for (let i = 0; i < c; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 150); } }, spawnInterval); }
+      for (let i = 0; i < countToSpawn; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 120); }
+      const newInterval = Math.max(350, 800 - (score > 40 ? 450 : score * 11));
+      if (newInterval !== spawnInterval) { clearInterval(moleTimer); spawnInterval = newInterval; moleTimer = setInterval(() => { const c = score > 20 ? randomInt(2, 4) : randomInt(1, 2); for (let i = 0; i < c; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 100); } }, spawnInterval); }
     }, spawnInterval);
   }
 
   function endGame() {
     gameRunning = false; clearInterval(gameTimer); clearInterval(moleTimer); clearTimeout(comboTimer);
     moleEls.forEach(m => m.mole.classList.remove('up'));
-    startBtn.textContent = '再来一局'; startBtn.disabled = false;
+    startBtn.textContent = '再来一局'; startBtn.disabled = false; powerupLabel.textContent = '';
     saveBestScore('whackamole', score);
     setTimeout(() => { showConfetti(50); showModal({ emoji: '🔨', title: '时间到！', message: `你打中了 ${score} 分！\n最佳纪录: ${loadBestScore('whackamole')}`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: startGame }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
   }

@@ -13,11 +13,14 @@
     .mine-cell.revealed { background: #FFFBF7; cursor: default; transform: scale(0.95); }
     .mine-cell.mine-exploded { background: #FFB5C2; animation: mineBoom 0.4s ease; }
     .mine-cell.flagged { background: #FFDAC1; animation: flagIn 0.2s var(--ease-bounce); }
+    .mine-cell.chordable { cursor: pointer; }
     @keyframes flagIn { 0% { transform: scale(0.5); } 100% { transform: scale(1); } }
     @keyframes mineBoom { 0% { transform: scale(1); background: #FFD700; } 50% { transform: scale(1.2); background: #FF4444; } 100% { transform: scale(1); background: #FFB5C2; } }
     .mine-cell .n1 { color: #4A90D9; } .mine-cell .n2 { color: #5DAE4E; } .mine-cell .n3 { color: #E84646; } .mine-cell .n4 { color: #7B4FBF; } .mine-cell .n5 { color: #C44; } .mine-cell .n6 { color: #3A8; } .mine-cell .n7 { color: #555; } .mine-cell .n8 { color: #999; }
     .reset-btn { font-size: 1.6rem; padding: 4px 14px; background: var(--white); border: none; border-radius: 12px; cursor: pointer; box-shadow: var(--shadow-soft); transition: transform 0.2s var(--ease-bounce); }
-    .reset-btn:hover { transform: scale(1.1); } .reset-btn:active { transform: scale(0.9); }
+    .custom-row { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .custom-row input { width: 50px; border: 2px solid var(--lavender); border-radius: 8px; padding: 4px 6px; font-family: var(--font-body); text-align: center; font-size: 0.9rem; }
+    .custom-row label { font-size: 0.8rem; color: var(--text-light); }
     @media (max-width: 450px) { .mine-cell { width: 36px; height: 36px; font-size: 0.95rem; } }
   </style>
 </head>
@@ -34,12 +37,20 @@
     <span class="score-item">⏱️ <strong id="timer">000</strong></span>
   </div>
 
-  <div class="diff-selector" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;justify-content:center;">
-    <button class="diff-btn active" data-mode="beginner" style="font-family:var(--font-body);font-size:0.85rem;border:2px solid var(--lavender);background:var(--white);border-radius:12px;padding:6px 14px;cursor:pointer;color:var(--text);">😊 初级 9×9</button>
+  <div class="diff-selector" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;justify-content:center;">
+    <button class="diff-btn active" data-mode="beginner" style="font-family:var(--font-body);font-size:0.85rem;border:2px solid var(--lavender);background:var(--lavender);border-radius:12px;padding:6px 14px;cursor:pointer;color:var(--text);">😊 初级 9×9</button>
     <button class="diff-btn" data-mode="intermediate" style="font-family:var(--font-body);font-size:0.85rem;border:2px solid var(--lavender);background:var(--white);border-radius:12px;padding:6px 14px;cursor:pointer;color:var(--text);">😎 中级 16×16</button>
+    <button class="diff-btn" data-mode="custom" style="font-family:var(--font-body);font-size:0.85rem;border:2px solid var(--lavender);background:var(--white);border-radius:12px;padding:6px 14px;cursor:pointer;color:var(--text);">🛠 自定义</button>
   </div>
 
-  <div class="game-board" id="boardWrapper"><div class="mine-board" id="board"></div></div>
+  <div class="custom-row" id="customRow" style="display:none;">
+    <label>行 <input type="number" id="customRows" value="10" min="5" max="20"></label>
+    <label>列 <input type="number" id="customCols" value="10" min="5" max="24"></label>
+    <label>雷 <input type="number" id="customMines" value="15" min="5" max="99"></label>
+    <button class="btn btn-mint" id="applyCustom" style="font-size:0.8rem;padding:4px 10px;">应用</button>
+  </div>
+
+  <div><div class="mine-board" id="board"></div></div>
 </div>
 
 <script src="../js/utils.js"></script>
@@ -77,7 +88,7 @@
       for (let c = 0; c < COLS; c++) {
         const cell = document.createElement('div'); cell.className = 'mine-cell'; cell.dataset.r = r; cell.dataset.c = c;
         const b = board[r][c];
-        if (b.revealed) { cell.classList.add('revealed'); if (b.mine) { cell.classList.add('mine-exploded'); cell.textContent = '💣'; } else if (b.adjacentMines > 0) cell.innerHTML = `<span class="n${b.adjacentMines}">${b.adjacentMines}</span>`; }
+        if (b.revealed) { cell.classList.add('revealed'); if (b.mine) { cell.classList.add('mine-exploded'); cell.textContent = '💣'; } else if (b.adjacentMines > 0) { cell.innerHTML = `<span class="n${b.adjacentMines}">${b.adjacentMines}</span>`; cell.classList.add('chordable'); cell.addEventListener('dblclick', (e) => { e.preventDefault(); chordClick(r, c); }); cell.addEventListener('click', () => chordAttempt(r, c)); } }
         else if (b.flagged) { cell.classList.add('flagged'); cell.textContent = '🚩'; }
         cell.addEventListener('click', () => cellClick(r, c));
         cell.addEventListener('contextmenu', (e) => { e.preventDefault(); cellRightClick(r, c); });
@@ -89,14 +100,30 @@
       }
   }
 
+  let chordClickTimeout = null;
+  function chordAttempt(r, c) {
+    const b = board[r][c];
+    if (!b.revealed || b.adjacentMines === 0 || gameOver) { chordClickTimeout = null; return; }
+    if (chordClickTimeout) { clearTimeout(chordClickTimeout); chordClickTimeout = null; chordClick(r, c); }
+    else { chordClickTimeout = setTimeout(() => { chordClickTimeout = null; }, 400); }
+  }
+
+  function chordClick(r, c) {
+    const b = board[r][c]; if (!b.revealed || b.adjacentMines === 0 || gameOver) return;
+    let flagCount = 0;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && board[nr][nc].flagged) flagCount++; }
+    if (flagCount !== b.adjacentMines) return;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !board[nr][nc].flagged && !board[nr][nc].revealed) cellClick(nr, nc); }
+  }
+
   function cellClick(r, c) {
     if (gameOver) return; const b = board[r][c]; if (b.revealed || b.flagged) return;
     if (firstClick) { firstClick = false; placeMines(r, c); startTimer(); }
     reveal(r, c); render();
     if (b.mine) { gameOver = true; clearInterval(timerInterval); resetBtn.textContent = '😵'; for (let rr = 0; rr < ROWS; rr++) for (let cc = 0; cc < COLS; cc++) if (board[rr][cc].mine) board[rr][cc].revealed = true; render();
       setTimeout(() => { showModal({ emoji: '💥', title: '踩到雷了！', message: `用时: ${seconds}秒`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 500); }
-    if (revealed === ROWS * COLS - MINES) { gameOver = true; clearInterval(timerInterval); resetBtn.textContent = '😎'; saveBestScore('minesweeper_' + (ROWS === 9 ? 'b' : 'i'), seconds);
-      setTimeout(() => { showConfetti(80); showModal({ emoji: '🏆', title: '扫雷成功！', message: `用时: ${seconds}秒\n最佳: ${loadBestScore('minesweeper_' + (ROWS === 9 ? 'b' : 'i'))}秒`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 400); }
+    if (revealed === ROWS * COLS - MINES) { gameOver = true; clearInterval(timerInterval); resetBtn.textContent = '😎'; saveBestScore('minesweeper_' + ROWS + 'x' + COLS, seconds);
+      setTimeout(() => { showConfetti(80); showModal({ emoji: '🏆', title: '扫雷成功！', message: `用时: ${seconds}秒\n最佳: ${loadBestScore('minesweeper_' + ROWS + 'x' + COLS)}秒`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 400); }
   }
 
   function reveal(r, c) { const b = board[r][c]; if (b.revealed || b.flagged) return; b.revealed = true; revealed++; if (b.adjacentMines === 0 && !b.mine) for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) reveal(nr, nc); } }
@@ -106,11 +133,21 @@
   function startTimer() { if (timerInterval) return; timerInterval = setInterval(() => { seconds++; if (seconds > 999) seconds = 999; timerEl.textContent = String(seconds).padStart(3, '0'); }, 1000); }
 
   function switchMode(mode) {
-    if (mode === 'beginner') { ROWS = 9; COLS = 9; MINES = 10; } else { ROWS = 16; COLS = 16; MINES = 40; }
+    if (mode === 'beginner') { ROWS = 9; COLS = 9; MINES = 10; document.getElementById('customRow').style.display = 'none'; }
+    else if (mode === 'intermediate') { ROWS = 16; COLS = 16; MINES = 40; document.getElementById('customRow').style.display = 'none'; }
+    else { document.getElementById('customRow').style.display = 'flex'; return; }
     init();
   }
 
-  document.querySelectorAll('.diff-btn').forEach(btn => { btn.addEventListener('click', () => { document.querySelectorAll('.diff-btn').forEach(b => { b.classList.remove('active'); b.style.background = 'var(--white)'; b.style.borderColor = 'var(--lavender)'; }); btn.classList.add('active'); btn.style.background = 'var(--lavender)'; btn.style.borderColor = 'var(--lavender)'; switchMode(btn.dataset.mode); }); });
+  document.querySelectorAll('.diff-btn').forEach(btn => { btn.addEventListener('click', () => { document.querySelectorAll('.diff-btn').forEach(b => { b.classList.remove('active'); b.style.background = 'var(--white)'; }); btn.classList.add('active'); btn.style.background = 'var(--lavender)'; switchMode(btn.dataset.mode); }); });
+
+  document.getElementById('applyCustom').addEventListener('click', () => {
+    ROWS = Math.max(5, Math.min(20, +document.getElementById('customRows').value || 10));
+    COLS = Math.max(5, Math.min(24, +document.getElementById('customCols').value || 10));
+    MINES = Math.max(5, Math.min(ROWS * COLS - 9, +document.getElementById('customMines').value || 15));
+    document.getElementById('customMines').value = MINES;
+    init();
+  });
 
   resetBtn.addEventListener('click', init);
   init();

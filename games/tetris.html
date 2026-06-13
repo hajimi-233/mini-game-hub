@@ -26,24 +26,19 @@
   <div class="score-bar">
     <span class="score-item">🏆 <strong id="score">0</strong></span>
     <span class="score-item">📊 <strong id="lines">0</strong></span>
+    <span class="score-item">🔥 <strong id="comboCount">0</strong></span>
     <span class="score-item">⚡ <strong id="level">1</strong></span>
   </div>
   <div style="display:flex;gap:8px;margin-bottom:8px;">
     <button class="btn btn-mint" id="pauseBtn" style="font-size:0.85rem;padding:8px 16px;">⏯️ 暂停 (P)</button>
   </div>
   <div class="tetris-layout">
-    <div class="tetris-side">
-      <p>Hold (C)</p>
-      <canvas id="holdCanvas"></canvas>
-    </div>
+    <div class="tetris-side"><p>Hold (C)</p><canvas id="holdCanvas"></canvas></div>
     <div style="position:relative;display:inline-block;">
       <canvas id="tetrisCanvas"></canvas>
       <div class="pause-overlay" id="pauseOverlay">⏸️ 已暂停</div>
     </div>
-    <div class="tetris-side">
-      <p>下一个</p>
-      <canvas id="nextCanvas"></canvas>
-    </div>
+    <div class="tetris-side"><p>下一个</p><canvas id="nextCanvas"></canvas></div>
   </div>
   <div class="dpad">
     <button class="dpad-btn dpad-up">▲</button>
@@ -61,6 +56,7 @@
   const nextCanvas = document.getElementById('nextCanvas'), nextCtx = nextCanvas.getContext('2d');
   const holdCanvas = document.getElementById('holdCanvas'), holdCtx = holdCanvas.getContext('2d');
   const scoreEl = document.getElementById('score'), linesEl = document.getElementById('lines'), levelEl = document.getElementById('level');
+  const comboEl = document.getElementById('comboCount');
   const pauseOverlay = document.getElementById('pauseOverlay'), pauseBtn = document.getElementById('pauseBtn');
 
   const COLS = 10, ROWS = 20, CELL = 30;
@@ -80,7 +76,8 @@
   let grid, currentPiece, nextPiece, holdPiece, canHold;
   let score, lines, level, gameOver, paused;
   let animFrameId = null, lastDrop = 0, dropInterval = 800;
-  let lineClearRows = [];
+  let lineClearRows = [], comboCounter = 0, lastMoveWasRotate = false;
+  let particles = [];
 
   function resize() {
     const size = Math.min(COLS * CELL, window.innerWidth - 200, 360);
@@ -92,7 +89,7 @@
 
   function createPiece(type) {
     const t = TETROMINOES[type];
-    return { type, shape: t.shape.map(r => [...r]), color: t.color, x: Math.floor((COLS - t.shape[0].length) / 2), y: 0 };
+    return { type, shape: t.shape.map(r => [...r]), color: t.color, x: Math.floor((COLS - t.shape[0].length) / 2), y: 0, lastRotation: false };
   }
 
   function randomPiece() { return createPiece(pickRandom(PIECES)); }
@@ -100,9 +97,9 @@
   function init() {
     grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     score = 0; lines = 0; level = 1; gameOver = false; paused = false;
-    holdPiece = null; canHold = true; lineClearRows = [];
+    holdPiece = null; canHold = true; lineClearRows = []; comboCounter = 0; particles = [];
     dropInterval = 800; lastDrop = 0;
-    scoreEl.textContent = '0'; linesEl.textContent = '0'; levelEl.textContent = '1';
+    scoreEl.textContent = '0'; linesEl.textContent = '0'; levelEl.textContent = '1'; comboEl.textContent = '0';
     pauseOverlay.classList.remove('show'); pauseBtn.textContent = '⏯️ 暂停 (P)';
     if (animFrameId) cancelAnimationFrame(animFrameId);
     currentPiece = randomPiece(); nextPiece = randomPiece();
@@ -122,8 +119,22 @@
     return false;
   }
 
+  // T-spin: T piece + last move was rotate + 3 of 4 corners occupied
+  function isTSpin() {
+    if (currentPiece.type !== 'T') return false;
+    if (!lastMoveWasRotate) return false;
+    const cx = currentPiece.x + 1, cy = currentPiece.y + 1;
+    const corners = [[cx - 1, cy - 1], [cx + 1, cy - 1], [cx - 1, cy + 1], [cx + 1, cy + 1]];
+    let filled = 0;
+    for (const [x, y] of corners) {
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) { filled++; continue; }
+      if (y >= 0 && grid[y][x]) filled++;
+    }
+    return filled >= 3;
+  }
+
   function lockPiece() {
-    const { shape, color, x, y } = currentPiece;
+    const { shape, color, x, y, type } = currentPiece;
     for (let r = 0; r < shape.length; r++)
       for (let c = 0; c < shape[r].length; c++) {
         if (!shape[r][c]) continue;
@@ -132,28 +143,45 @@
         grid[gy][gx] = color;
       }
 
+    const tspin = isTSpin();
     let cleared = 0; lineClearRows = [];
     for (let r = ROWS - 1; r >= 0; r--) {
       if (grid[r].every(cell => cell !== 0)) { lineClearRows.push(r); grid.splice(r, 1); grid.unshift(Array(COLS).fill(0)); cleared++; r++; }
     }
+
     if (cleared > 0) {
-      lines += cleared;
-      const points = [0, 100, 300, 500, 800]; score += points[cleared] * level;
+      lines += cleared; comboCounter++;
+      if (comboCounter > 1) comboEl.textContent = comboCounter;
+      // Scoring with T-spin bonus
+      const points = [0, 100, 300, 500, 800];
+      let lineScore = points[cleared] * level;
+      if (tspin) { lineScore += 400 * level; }
+      score += lineScore;
       level = Math.floor(lines / 10) + 1; dropInterval = Math.max(50, 750 - (level - 1) * 65);
       linesEl.textContent = lines; levelEl.textContent = level; scoreEl.textContent = score;
       saveBestScore('tetris', score);
-      // Flash animation
+      // Flash
       drawAll(); const flashStart = performance.now();
       function flashAnim(ts) {
         const elapsed = ts - flashStart;
         if (elapsed > 300) { lineClearRows = []; drawAll(); return; }
         const cycle = Math.sin(elapsed / 40) > 0 ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0)';
-        drawAll(flashStart ? null : null, cycle);
+        drawAll(null, cycle);
         if (!gameOver) requestAnimationFrame(flashAnim);
       }
       requestAnimationFrame(flashAnim);
-      if (lineClearRows.length >= 4) setTimeout(() => showConfetti(20), 200);
+      if (cleared >= 4) { setTimeout(() => showConfetti(20), 200); }
+      if (tspin) {
+        const popup = document.createElement('div');
+        popup.textContent = '💫 T-SPIN!';
+        popup.style.cssText = 'position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font-family:var(--font-display);font-size:2rem;color:#C7CEEA;z-index:60;pointer-events:none;animation:comboUp 1s ease-out forwards;';
+        document.body.appendChild(popup); setTimeout(() => popup.remove(), 1100);
+      }
+    } else {
+      comboCounter = 0; comboEl.textContent = '0';
     }
+
+    lastMoveWasRotate = false;
     spawnPiece();
   }
 
@@ -168,24 +196,40 @@
     return gy;
   }
 
-  function movePiece(dx, dy) { if (!collides(currentPiece, currentPiece.x + dx, currentPiece.y + dy)) { currentPiece.x += dx; currentPiece.y += dy; return true; } return false; }
+  function movePiece(dx, dy) {
+    if (!collides(currentPiece, currentPiece.x + dx, currentPiece.y + dy)) { currentPiece.x += dx; currentPiece.y += dy; if (dy !== 0) lastMoveWasRotate = false; return true; }
+    return false;
+  }
 
   function rotatePiece() {
     const s = currentPiece.shape; const N = s.length;
     const rotated = Array.from({ length: N }, (_, r) => Array.from({ length: N }, (_, c) => s[N - 1 - c][r]));
     const kicks = [[0,0], [-1,0], [1,0], [0,-1], [-2,0], [2,0], [-1,-1], [1,-1]];
-    for (const [dx, dy] of kicks) { if (!collides({ shape: rotated }, currentPiece.x + dx, currentPiece.y + dy)) { currentPiece.shape = rotated; currentPiece.x += dx; currentPiece.y += dy; return; } }
+    for (const [dx, dy] of kicks) {
+      if (!collides({ shape: rotated }, currentPiece.x + dx, currentPiece.y + dy)) {
+        currentPiece.shape = rotated; currentPiece.x += dx; currentPiece.y += dy; lastMoveWasRotate = true; return;
+      }
+    }
   }
 
   function holdCurrent() {
     if (!canHold) return;
-    canHold = false;
+    canHold = false; lastMoveWasRotate = false;
     const prev = holdPiece; holdPiece = { type: currentPiece.type, shape: TETROMINOES[currentPiece.type].shape.map(r => [...r]), color: currentPiece.color };
     if (prev) { currentPiece = createPiece(prev.type); currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2); currentPiece.y = 0; }
     else spawnPiece();
   }
 
-  function hardDrop() { while (movePiece(0, 1)) {} lockPiece(); lastDrop = performance.now(); }
+  function hardDrop() {
+    let dropDist = 0;
+    while (movePiece(0, 1)) dropDist++;
+    // Spawn particles
+    const gx = currentPiece.x, gy = getGhostY() - 1;
+    for (let i = 0; i < 12; i++) {
+      particles.push({ x: gx + currentPiece.shape[0].length / 2, y: gy + currentPiece.shape.length / 2, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3 - 1, life: 12, color: COLORS[currentPiece.color] });
+    }
+    lockPiece(); lastDrop = performance.now();
+  }
 
   function togglePause() { if (gameOver) return; paused = !paused; if (paused) { pauseOverlay.classList.add('show'); pauseBtn.textContent = '▶️ 继续 (P)'; lastDrop = performance.now(); } else { pauseOverlay.classList.remove('show'); pauseBtn.textContent = '⏯️ 暂停 (P)'; } animFrameId = requestAnimationFrame(gameLoop); }
 
@@ -197,19 +241,27 @@
     animFrameId = requestAnimationFrame(gameLoop);
   }
 
-  function drawAll(flashColor = null) {
+  function drawAll(flashColor = null, lineFlash = null) {
     const cs = CELL;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#FFFBF7'; ctx.fillRect(0, 0, COLS * cs, ROWS * cs);
     for (let r = 0; r < ROWS; r++)
       for (let c = 0; c < COLS; c++) {
         if ((r + c) % 2 === 0 && !grid[r][c]) { ctx.fillStyle = '#FFF5F0'; ctx.fillRect(c * cs, r * cs, cs, cs); }
-        if (grid[r][c]) { drawCell(ctx, c, r, COLORS[grid[r][c]], cs, lineClearRows.includes(r) ? (flashColor || 'rgba(255,255,255,0.7)') : null); }
+        if (grid[r][c]) { drawCell(ctx, c, r, COLORS[grid[r][c]], cs, lineClearRows.includes(r) ? (lineFlash || 'rgba(255,255,255,0.7)') : null); }
       }
     const ghostY = getGhostY();
     if (ghostY !== currentPiece.y) drawPiece(ctx, currentPiece.shape, currentPiece.x, ghostY, 'rgba(0,0,0,0.12)', cs);
 
     drawPiece(ctx, currentPiece.shape, currentPiece.x, currentPiece.y, COLORS[currentPiece.color], cs);
+
+    // Particles
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => {
+      ctx.fillStyle = p.color + '80';
+      ctx.beginPath(); ctx.arc(p.x * cs, p.y * cs, 4, 0, Math.PI * 2); ctx.fill();
+      p.x += p.vx * 0.1; p.y += p.vy * 0.1; p.vy += 0.02; p.life--;
+    });
 
     function drawMini(ctx2d, piece, w, h, ncell) {
       ctx2d.clearRect(0, 0, w, h); ctx2d.fillStyle = '#FFFBF7'; ctx2d.fillRect(0, 0, w, h);
@@ -225,8 +277,7 @@
     const x = ox + cx * cs, y = oy + cy * cs;
     if (flash) { context.fillStyle = flash; context.fillRect(x, y, cs, cs); return; }
     context.fillStyle = color; context.fillRect(x + 1, y + 1, cs - 2, cs - 2);
-    context.fillStyle = 'rgba(255,255,255,0.35)'; context.fillRect(x + 1, y + 1, cs - 2, 3);
-    context.fillRect(x + 1, y + 1, 3, cs - 2);
+    context.fillStyle = 'rgba(255,255,255,0.35)'; context.fillRect(x + 1, y + 1, cs - 2, 3); context.fillRect(x + 1, y + 1, 3, cs - 2);
     context.fillStyle = 'rgba(0,0,0,0.1)'; context.fillRect(x + 1, y + cs - 4, cs - 2, 3);
   }
 
