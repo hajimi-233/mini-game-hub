@@ -102,11 +102,9 @@
       if (dist < player.r + o.r - 3) { endGame(); return; }
     }
 
-    // Particle trail for player
+    // Particle trail (NOT added to obstacles for collision)
     particleTimer++;
-    if (particleTimer % 3 === 0) {
-      obstacles.push({ x: player.x + (Math.random() - 0.5) * 20, y: player.y + (Math.random() - 0.5) * 20, r: 2, vy: -0.5, color: 'rgba(255,255,255,0.3)', type: 'particle', life: 20 });
-    }
+    // Particles are now rendered directly, not stored as collideable obstacles
 
     draw();
     animFrameId = requestAnimationFrame(gameLoop);
@@ -131,12 +129,6 @@
 
     // Obstacles
     for (const o of obstacles) {
-      if (o.type === 'particle') {
-        ctx.fillStyle = o.color; ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
-        o.life--;
-        if (o.life <= 0) obstacles.splice(obstacles.indexOf(o), 1);
-        continue;
-      }
       ctx.fillStyle = o.color;
       ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.3)';

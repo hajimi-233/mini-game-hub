@@ -57,6 +57,7 @@
     scoreEl.textContent = '0'; livesEl.textContent = '3'; levelEl.textContent = '1';
     gameRunning = false; particles = []; powerUps = [];
     if (animFrameId) cancelAnimationFrame(animFrameId);
+    animFrameId = null;
     buildLevel();
     paddle = { x: canvas.width / 2 - PADDLE_W / 2, y: canvas.height - 30, w: PADDLE_W, h: PADDLE_H };
     ball = { x: paddle.x + PADDLE_W / 2, y: paddle.y - BALL_R * 2, vx: 3, vy: -3, onPaddle: true };
@@ -81,6 +82,7 @@
     if (gameRunning) return;
     gameRunning = true;
     ball.onPaddle = false;
+    ball.vx = 3; ball.vy = -3;
     startBtn.textContent = '游戏中...';
     startBtn.style.opacity = '0.5';
     lastTime = performance.now();
@@ -118,8 +120,14 @@
     if (ball.y + BALL_R >= canvas.height) {
       lives--;
       livesEl.textContent = lives;
-      if (lives <= 0) endGame();
-      else { ball.onPaddle = true; ball.y = paddle.y - BALL_R * 2; }
+      if (lives <= 0) {
+        gameRunning = false;
+        if (animFrameId) cancelAnimationFrame(animFrameId);
+        endGame();
+      } else {
+        ball.onPaddle = true;
+        ball.vx = 3; ball.vy = -3;
+      }
       return;
     }
 
