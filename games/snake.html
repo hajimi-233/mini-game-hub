@@ -7,20 +7,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
   <style>
-    .snake-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-    }
-    canvas#snakeCanvas {
-      display: block;
-      border-radius: 16px;
-      box-shadow: var(--shadow-card);
-      background: var(--white);
-      touch-action: manipulation;
-      max-width: 100%;
-    }
+    .snake-wrapper { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    canvas#snakeCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: var(--white); touch-action: manipulation; max-width: 100%; }
+    .diff-selector { display: flex; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; justify-content: center; }
+    .diff-btn { font-family: var(--font-body); font-size: 0.85rem; border: 2px solid var(--lavender); background: var(--white); border-radius: 12px; padding: 6px 14px; cursor: pointer; transition: all 0.2s; color: var(--text); }
+    .diff-btn.active { background: var(--lavender); border-color: var(--lavender); font-weight: 700; }
+    .pause-overlay { position: absolute; display: none; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,251,247,0.85); border-radius: 16px; justify-content: center; align-items: center; font-family: var(--font-display); font-size: 2rem; color: var(--text); z-index: 10; }
+    .pause-overlay.show { display: flex; }
   </style>
 </head>
 <body>
@@ -33,10 +26,23 @@
   <div class="score-bar">
     <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
     <span class="score-item">⭐ 最佳: <strong id="best">0</strong></span>
+    <span class="score-item" id="goldenBadge" style="display:none">🌟 金色食物!</span>
+  </div>
+
+  <div class="diff-selector">
+    <button class="diff-btn active" data-speed="slow">🐢 慢速</button>
+    <button class="diff-btn" data-speed="medium">🐍 中速</button>
+    <button class="diff-btn" data-speed="fast">⚡ 快速</button>
   </div>
 
   <div class="snake-wrapper">
-    <canvas id="snakeCanvas"></canvas>
+    <div style="position:relative; display:inline-block;">
+      <canvas id="snakeCanvas"></canvas>
+      <div class="pause-overlay" id="pauseOverlay">⏸️ 已暂停</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-mint" id="pauseBtn">⏯️ 暂停 (P)</button>
+    </div>
     <div class="dpad">
       <button class="dpad-btn dpad-up">▲</button>
       <button class="dpad-btn dpad-left">◀</button>
@@ -53,15 +59,22 @@
   const ctx = canvas.getContext('2d');
   const scoreEl = document.getElementById('score');
   const bestEl = document.getElementById('best');
+  const goldenBadge = document.getElementById('goldenBadge');
+  const pauseOverlay = document.getElementById('pauseOverlay');
+  const pauseBtn = document.getElementById('pauseBtn');
 
-  const GRID = 20;
   const COLS = 20, ROWS = 20;
+  const FOOD_TYPES = { normal: { emoji: '🍎', points: 1, color: '#FF6B6B' }, golden: { emoji: '⭐', points: 3, color: '#FFD700' } };
 
-  let snake, food, direction, nextDirection, score, gameOver, gameLoop, speed;
+  let snake, food, direction, nextDirection, score, gameOver, gameLoop, speed, baseSpeed, paused;
+  let goldenTimer = null;
   let particles = [];
 
+  const SPEEDS = { slow: 150, medium: 110, fast: 75 };
+  let difficulty = 'slow';
+
   function resize() {
-    const size = Math.min(400, window.innerWidth - 32);
+    const size = Math.min(440, window.innerWidth - 32);
     canvas.style.width = size + 'px';
     canvas.style.height = size + 'px';
     const dpr = window.devicePixelRatio || 1;
@@ -71,30 +84,60 @@
   }
 
   function init() {
+    clearInterval(gameLoop);
+    clearTimeout(goldenTimer);
     resize();
     snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
-    direction = 'right';
-    nextDirection = 'right';
-    score = 0;
-    gameOver = false;
-    speed = 130;
+    direction = 'right'; nextDirection = 'right';
+    score = 0; paused = false;
+    baseSpeed = SPEEDS[difficulty]; speed = baseSpeed;
     particles = [];
+    gameOver = false;
+    food = null;
     scoreEl.textContent = '0';
     bestEl.textContent = loadBestScore('snake');
-    if (gameLoop) clearInterval(gameLoop);
+    goldenBadge.style.display = 'none';
+    pauseOverlay.classList.remove('show');
+    pauseBtn.textContent = '⏯️ 暂停 (P)';
     placeFood();
     draw();
     gameLoop = setInterval(tick, speed);
   }
 
-  function placeFood() {
-    do {
-      food = { x: randomInt(0, COLS - 1), y: randomInt(0, ROWS - 1) };
-    } while (snake.some(s => s.x === food.x && s.y === food.y));
+  function placeFood(type) {
+    const pos = { x: randomInt(0, COLS - 1), y: randomInt(0, ROWS - 1) };
+    if (snake.some(s => s.x === pos.x && s.y === pos.y)) { placeFood(type); return; }
+    food = { ...pos, type: type || 'normal' };
+    if (food.type === 'golden') goldenBadge.style.display = 'inline';
+    else goldenBadge.style.display = 'none';
+  }
+
+  function maybeSpawnGolden() {
+    if (food.type === 'golden') return;
+    if (Math.random() < 0.12 && !gameOver) {
+      placeFood('golden');
+      goldenTimer = setTimeout(() => {
+        if (food && food.type === 'golden') { placeFood('normal'); }
+      }, 4000);
+    }
+  }
+
+  function togglePause() {
+    if (gameOver) return;
+    paused = !paused;
+    if (paused) {
+      clearInterval(gameLoop);
+      pauseOverlay.classList.add('show');
+      pauseBtn.textContent = '▶️ 继续 (P)';
+    } else {
+      pauseOverlay.classList.remove('show');
+      pauseBtn.textContent = '⏯️ 暂停 (P)';
+      gameLoop = setInterval(tick, speed);
+    }
   }
 
   function tick() {
-    if (gameOver) return;
+    if (gameOver || paused) return;
     direction = nextDirection;
     const head = { ...snake[0] };
     if (direction === 'right') head.x++;
@@ -102,36 +145,35 @@
     if (direction === 'up') head.y--;
     if (direction === 'down') head.y++;
 
-    // Wall collision
-    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
-      endGame(); return;
-    }
-    // Self collision
-    if (snake.some(s => s.x === head.x && s.y === head.y)) {
-      endGame(); return;
-    }
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) { endGame(); return; }
+    if (snake.some(s => s.x === head.x && s.y === head.y)) { endGame(); return; }
 
     snake.unshift(head);
     if (head.x === food.x && head.y === food.y) {
-      score++;
+      const points = food.type === 'golden' ? 3 : 1;
+      score += points;
       scoreEl.textContent = score;
-      placeFood();
-      spawnParticles(food.x, food.y);
-      // Speed up
-      if (speed > 60) {
-        clearInterval(gameLoop);
-        speed = Math.max(60, 130 - score * 3);
-        gameLoop = setInterval(tick, speed);
-      }
+      clearTimeout(goldenTimer);
+      spawnParticles(food.x, food.y, food.type);
+      placeFood('normal');
+      maybeSpawnGolden();
+      // Speed up every 5 points
+      speed = Math.max(50, baseSpeed - Math.floor(score / 5) * 8);
+      clearInterval(gameLoop);
+      gameLoop = setInterval(tick, speed);
     } else {
       snake.pop();
+      // Random chance to spawn golden
+      if (score > 3 && Math.random() < 0.02) maybeSpawnGolden();
     }
     draw();
   }
 
-  function spawnParticles(gx, gy) {
-    for (let i = 0; i < 6; i++) {
-      particles.push({ x: gx, y: gy, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3, life: 15 });
+  function spawnParticles(gx, gy, type) {
+    const count = type === 'golden' ? 14 : 6;
+    const color = type === 'golden' ? 'rgba(255,215,0,A)' : 'rgba(255,181,194,A)';
+    for (let i = 0; i < count; i++) {
+      particles.push({ x: gx, y: gy, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, life: 18, color });
     }
   }
 
@@ -139,47 +181,47 @@
     const cs = canvas.width / (window.devicePixelRatio || 1) / COLS;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Grid
+    // Background grid
     ctx.fillStyle = '#FFFBF7';
     ctx.fillRect(0, 0, cs * COLS, cs * ROWS);
-    for (let x = 0; x < COLS; x++) {
+    for (let x = 0; x < COLS; x++)
       for (let y = 0; y < ROWS; y++) {
-        if ((x + y) % 2 === 0) {
-          ctx.fillStyle = '#FFF5F0';
-          ctx.fillRect(x * cs, y * cs, cs, cs);
-        }
+        if ((x + y) % 2 === 0) { ctx.fillStyle = '#FFF5F0'; ctx.fillRect(x * cs, y * cs, cs, cs); }
       }
-    }
 
-    // Food
-    ctx.font = `${cs * 0.8}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🍎', food.x * cs + cs / 2, food.y * cs + cs / 2);
+    // Food with glow for golden
+    if (food) {
+      if (food.type === 'golden') {
+        const fx = food.x * cs + cs / 2, fy = food.y * cs + cs / 2;
+        ctx.fillStyle = 'rgba(255,215,0,0.2)';
+        ctx.beginPath(); ctx.arc(fx, fy, cs * 0.7, 0, Math.PI * 2); ctx.fill();
+      }
+      const emoji = FOOD_TYPES[food.type].emoji;
+      ctx.font = `${cs * 0.85}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, food.x * cs + cs / 2, food.y * cs + cs / 2);
+    }
 
     // Snake
     snake.forEach((s, i) => {
       const x = s.x * cs, y = s.y * cs;
-      ctx.fillStyle = i === 0 ? '#81C784' : '#B5EAD7';
-      ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, cs - 2, cs - 2, 6);
-      ctx.fill();
+      ctx.fillStyle = i === 0 ? '#81C784' : (i % 2 === 0 ? '#B5EAD7' : '#C8F0DB');
+      ctx.beginPath(); ctx.roundRect(x + 1, y + 1, cs - 2, cs - 2, 6); ctx.fill();
       if (i === 0) {
-        // Eyes
         ctx.fillStyle = '#fff';
         ctx.beginPath();
         let ex = x + cs / 2, ey = y + cs / 2;
-        if (direction === 'right') { ctx.arc(ex + 4, ey - 3, 3, 0, Math.PI * 2); ctx.arc(ex + 4, ey + 3, 3, 0, Math.PI * 2); }
-        else if (direction === 'left') { ctx.arc(ex - 4, ey - 3, 3, 0, Math.PI * 2); ctx.arc(ex - 4, ey + 3, 3, 0, Math.PI * 2); }
-        else if (direction === 'up') { ctx.arc(ex - 3, ey - 4, 3, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 4, 3, 0, Math.PI * 2); }
-        else { ctx.arc(ex - 3, ey + 4, 3, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 4, 3, 0, Math.PI * 2); }
+        if (direction === 'right') { ctx.arc(ex + 4, ey - 3, 3.5, 0, Math.PI * 2); ctx.arc(ex + 4, ey + 3, 3.5, 0, Math.PI * 2); }
+        else if (direction === 'left') { ctx.arc(ex - 4, ey - 3, 3.5, 0, Math.PI * 2); ctx.arc(ex - 4, ey + 3, 3.5, 0, Math.PI * 2); }
+        else if (direction === 'up') { ctx.arc(ex - 3, ey - 4, 3.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 4, 3.5, 0, Math.PI * 2); }
+        else { ctx.arc(ex - 3, ey + 4, 3.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 4, 3.5, 0, Math.PI * 2); }
         ctx.fill();
         ctx.fillStyle = '#333';
         ctx.beginPath();
-        if (direction === 'right') { ctx.arc(ex + 5, ey - 3, 1.5, 0, Math.PI * 2); ctx.arc(ex + 5, ey + 3, 1.5, 0, Math.PI * 2); }
-        else if (direction === 'left') { ctx.arc(ex - 5, ey - 3, 1.5, 0, Math.PI * 2); ctx.arc(ex - 5, ey + 3, 1.5, 0, Math.PI * 2); }
-        else if (direction === 'up') { ctx.arc(ex - 3, ey - 5, 1.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 5, 1.5, 0, Math.PI * 2); }
-        else { ctx.arc(ex - 3, ey + 5, 1.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 5, 1.5, 0, Math.PI * 2); }
+        if (direction === 'right') { ctx.arc(ex + 5, ey - 3, 1.8, 0, Math.PI * 2); ctx.arc(ex + 5, ey + 3, 1.8, 0, Math.PI * 2); }
+        else if (direction === 'left') { ctx.arc(ex - 5, ey - 3, 1.8, 0, Math.PI * 2); ctx.arc(ex - 5, ey + 3, 1.8, 0, Math.PI * 2); }
+        else if (direction === 'up') { ctx.arc(ex - 3, ey - 5, 1.8, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 5, 1.8, 0, Math.PI * 2); }
+        else { ctx.arc(ex - 3, ey + 5, 1.8, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 5, 1.8, 0, Math.PI * 2); }
         ctx.fill();
       }
     });
@@ -187,13 +229,9 @@
     // Particles
     particles = particles.filter(p => p.life > 0);
     particles.forEach(p => {
-      ctx.fillStyle = `rgba(255,181,194,${p.life / 15})`;
-      ctx.beginPath();
-      ctx.arc(p.x * cs + cs / 2, p.y * cs + cs / 2, 4, 0, Math.PI * 2);
-      ctx.fill();
-      p.x += p.vx * 0.1;
-      p.y += p.vy * 0.1;
-      p.life--;
+      ctx.fillStyle = p.color.replace('A', String(p.life / 18));
+      ctx.beginPath(); ctx.arc(p.x * cs + cs / 2, p.y * cs + cs / 2, 4.5, 0, Math.PI * 2); ctx.fill();
+      p.x += p.vx * 0.1; p.y += p.vy * 0.1; p.life--;
     });
 
     if (!gameOver && particles.length > 0) requestAnimationFrame(draw);
@@ -202,13 +240,15 @@
   function endGame() {
     gameOver = true;
     clearInterval(gameLoop);
+    clearTimeout(goldenTimer);
     saveBestScore('snake', score);
     bestEl.textContent = loadBestScore('snake');
-
+    goldenBadge.style.display = 'none';
+    // Draw final state
+    draw();
     setTimeout(() => {
       showModal({
-        emoji: '🐍',
-        title: '游戏结束',
+        emoji: '🐍', title: '游戏结束',
         message: `得分: ${score}\n最佳纪录: ${loadBestScore('snake')}`,
         buttons: [
           { text: '再来一局', cls: 'btn-primary', onClick: init },
@@ -218,26 +258,38 @@
     }, 200);
   }
 
+  // Difficulty buttons
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      difficulty = btn.dataset.speed;
+      init();
+    });
+  });
+
+  pauseBtn.addEventListener('click', togglePause);
+
   // Keyboard
   const OPPOSITES = { up: 'down', down: 'up', left: 'right', right: 'left' };
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'p' || e.key === 'P') { togglePause(); e.preventDefault(); return; }
+    if (paused || gameOver) return;
     const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
     const dir = map[e.key];
-    if (dir && OPPOSITES[dir] !== direction) nextDirection = dir;
-    e.preventDefault();
+    if (dir && OPPOSITES[dir] !== direction) { nextDirection = dir; e.preventDefault(); }
   });
 
-  // Swipe
   detectSwipe(canvas, (dir) => {
+    if (paused || gameOver) return;
     if (OPPOSITES[dir] !== direction) nextDirection = dir;
   });
 
-  // D-pad
   setupDpad({
-    up: () => { if (OPPOSITES.up !== direction) nextDirection = 'up'; },
-    down: () => { if (OPPOSITES.down !== direction) nextDirection = 'down'; },
-    left: () => { if (OPPOSITES.left !== direction) nextDirection = 'left'; },
-    right: () => { if (OPPOSITES.right !== direction) nextDirection = 'right'; },
+    up: () => { if (!paused && !gameOver && OPPOSITES.up !== direction) nextDirection = 'up'; },
+    down: () => { if (!paused && !gameOver && OPPOSITES.down !== direction) nextDirection = 'down'; },
+    left: () => { if (!paused && !gameOver && OPPOSITES.left !== direction) nextDirection = 'left'; },
+    right: () => { if (!paused && !gameOver && OPPOSITES.right !== direction) nextDirection = 'right'; },
   });
 
   window.addEventListener('resize', resize);

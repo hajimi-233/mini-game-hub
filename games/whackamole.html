@@ -7,50 +7,16 @@
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
   <style>
-    .mole-board {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      width: 100%;
-      max-width: 420px;
-      padding: 16px;
-    }
-    .mole-hole {
-      position: relative;
-      aspect-ratio: 1;
-      min-height: 100px;
-      background: var(--peach);
-      border-radius: 50%;
-      overflow: hidden;
-      cursor: pointer;
-      box-shadow: inset 0 6px 12px rgba(0,0,0,0.1);
-      -webkit-tap-highlight-color: transparent;
-    }
-    .mole-hole::after {
-      content: '';
-      position: absolute; bottom: 0; left: 10%; right: 10%; height: 40%;
-      background: rgba(0,0,0,0.06);
-      border-radius: 50%;
-    }
-    .mole {
-      position: absolute;
-      left: 50%; bottom: 0;
-      transform: translate(-50%, 100%);
-      font-size: 3.6rem;
-      line-height: 1;
-      transition: transform 0.12s ease-out;
-      pointer-events: none;
-    }
+    .mole-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; max-width: 420px; padding: 16px; }
+    .mole-hole { position: relative; aspect-ratio: 1; min-height: 100px; background: var(--peach); border-radius: 50%; overflow: hidden; cursor: pointer; box-shadow: inset 0 6px 12px rgba(0,0,0,0.1); -webkit-tap-highlight-color: transparent; transition: background 0.2s; }
+    .mole-hole.golden { background: #FFF1B0; }
+    .mole-hole::after { content: ''; position: absolute; bottom: 0; left: 10%; right: 10%; height: 40%; background: rgba(0,0,0,0.06); border-radius: 50%; }
+    .mole { position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 100%); font-size: 3.6rem; line-height: 1; transition: transform 0.12s ease-out; pointer-events: none; }
     .mole.up { transform: translate(-50%, 10%); }
-    .mole.whacked {
-      transform: translate(-50%, 10%) scale(0.3);
-      transition: transform 0.1s ease;
-    }
-
-    @media (max-width: 420px) {
-      .mole-board { gap: 10px; max-width: 300px; }
-      .mole { font-size: 2.4rem; }
-    }
+    .mole.whacked { transform: translate(-50%, 10%) scale(0.3); transition: transform 0.1s ease; }
+    .combo-popup { position: fixed; pointer-events: none; font-family: var(--font-display); font-size: 1.6rem; color: #FF6B6B; z-index: 60; animation: comboUp 0.8s ease-out forwards; }
+    @keyframes comboUp { 0% { opacity: 1; transform: translateY(0) scale(0.5); } 30% { opacity: 1; transform: translateY(-30px) scale(1.3); } 100% { opacity: 0; transform: translateY(-80px) scale(1); } }
+    @media (max-width: 450px) { .mole-board { gap: 10px; max-width: 320px; } .mole { font-size: 2.6rem; } .mole-hole { min-height: 80px; } }
   </style>
 </head>
 <body>
@@ -59,52 +25,33 @@
     <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
     <span class="game-title">🔨 打地鼠</span>
   </div>
-
   <div class="score-bar">
     <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
+    <span class="score-item">⚡ 连击: <strong id="combo">x1</strong></span>
     <span class="score-item">⏱️ <strong id="timer">30</strong></span>
   </div>
-
   <button class="btn btn-primary" id="startBtn">开始游戏</button>
-
-  <div class="game-board">
-    <div class="mole-board" id="moleBoard">
-    </div>
-  </div>
+  <div class="game-board"><div class="mole-board" id="moleBoard"></div></div>
 </div>
 
 <script src="../js/utils.js"></script>
 <script>
 (function() {
-  const ROWS = 3, COLS = 3, TOTAL = ROWS * COLS;
-  const GAME_DURATION = 30;
+  const TOTAL = 9, GAME_DURATION = 30;
+  let score = 0, timeLeft = GAME_DURATION, gameRunning = false, gameTimer = null, moleTimer = null;
+  let activeMoles = [], comboCount = 0, comboTimer = null;
+  let spawnInterval = 800;
 
-  let score = 0, timeLeft = GAME_DURATION;
-  let gameRunning = false, gameTimer = null, moleTimer = null;
-  let activeMoles = [];
-
-  const scoreEl = document.getElementById('score');
-  const timerEl = document.getElementById('timer');
-  const startBtn = document.getElementById('startBtn');
-  const boardEl = document.getElementById('moleBoard');
-
-  const holes = [];
+  const scoreEl = document.getElementById('score'), comboEl = document.getElementById('combo'), timerEl = document.getElementById('timer');
+  const startBtn = document.getElementById('startBtn'), boardEl = document.getElementById('moleBoard');
   const moleEls = [];
 
-  // Build board
   for (let i = 0; i < TOTAL; i++) {
-    const hole = document.createElement('div');
-    hole.className = 'mole-hole';
-    hole.dataset.index = i;
-    const mole = document.createElement('div');
-    mole.className = 'mole';
-    mole.textContent = '🐹';
-    hole.appendChild(mole);
-    boardEl.appendChild(hole);
-
+    const hole = document.createElement('div'); hole.className = 'mole-hole'; hole.dataset.index = i;
+    const mole = document.createElement('div'); mole.className = 'mole'; mole.textContent = '🐹';
+    hole.appendChild(mole); boardEl.appendChild(hole);
     hole.addEventListener('pointerdown', () => whack(i));
-    holes.push(hole);
-    moleEls.push(mole);
+    moleEls.push({ hole, mole });
   }
 
   function whack(index) {
@@ -112,92 +59,82 @@
     const moleIdx = activeMoles.findIndex(m => m.index === index && m.visible);
     if (moleIdx === -1) return;
 
-    // Hit!
-    activeMoles[moleIdx].visible = false;
-    moleEls[index].classList.remove('up');
-    moleEls[index].classList.add('whacked');
-    score++;
+    const isGolden = activeMoles[moleIdx].golden;
+    const points = isGolden ? 3 : 1;
+    comboCount++;
+    clearTimeout(comboTimer);
+    comboTimer = setTimeout(() => { comboCount = 0; comboEl.textContent = 'x1'; }, 1200);
+    comboEl.textContent = 'x' + comboCount;
+
+    const bonusPoints = points * comboCount;
+    score += bonusPoints;
     scoreEl.textContent = score;
 
-    setTimeout(() => {
-      moleEls[index].classList.remove('whacked');
-    }, 150);
+    activeMoles[moleIdx].visible = false;
+    moleEls[index].mole.classList.remove('up');
+    moleEls[index].mole.classList.add('whacked');
+    moleEls[index].hole.classList.remove('golden');
+
+    // Combo popup
+    if (comboCount >= 2) {
+      const popup = document.createElement('div'); popup.className = 'combo-popup';
+      popup.textContent = comboCount >= 6 ? `🔥 ${comboCount}连击!` : comboCount >= 4 ? `💥${comboCount}连击!` : `${comboCount}连击!`;
+      const rect = moleEls[index].hole.getBoundingClientRect();
+      popup.style.left = rect.left + rect.width / 2 - 40 + 'px';
+      popup.style.top = rect.top - 10 + 'px';
+      document.body.appendChild(popup);
+      setTimeout(() => popup.remove(), 900);
+    }
+
+    setTimeout(() => { moleEls[index].mole.classList.remove('whacked'); }, 150);
   }
 
   function popRandomMole() {
     if (!gameRunning) return;
-
-    // Try to pop a mole in an empty hole
     const occupied = activeMoles.filter(m => m.visible).map(m => m.index);
     const available = Array.from({ length: TOTAL }, (_, i) => i).filter(i => !occupied.includes(i));
     if (available.length === 0) return;
 
     const index = pickRandom(available);
-    activeMoles.push({ index, visible: true });
-    moleEls[index].classList.add('up');
+    const isGolden = score > 8 && Math.random() < 0.15;
+    activeMoles.push({ index, visible: true, golden: isGolden });
+    if (isGolden) {
+      moleEls[index].mole.textContent = '🌟';
+      moleEls[index].hole.classList.add('golden');
+    } else {
+      moleEls[index].mole.textContent = '🐹';
+    }
+    moleEls[index].mole.classList.add('up');
 
-    // Hide after random duration
-    const showDuration = Math.max(500, 1000 - score * 20);
+    const showDuration = Math.max(450, 1000 - score * 15);
     setTimeout(() => {
       const m = activeMoles.find(m => m.index === index && m.visible);
-      if (m) {
-        m.visible = false;
-        moleEls[index].classList.remove('up');
-      }
-    }, showDuration);
+      if (m) { m.visible = false; moleEls[index].mole.classList.remove('up'); moleEls[index].hole.classList.remove('golden'); moleEls[index].mole.textContent = '🐹'; }
+    }, isGolden ? showDuration * 0.7 : showDuration);
   }
 
   function startGame() {
-    score = 0; timeLeft = GAME_DURATION;
-    activeMoles = [];
-    scoreEl.textContent = '0';
-    timerEl.textContent = timeLeft;
-    gameRunning = true;
-    startBtn.textContent = '游戏中...';
-    startBtn.disabled = true;
+    score = 0; timeLeft = GAME_DURATION; activeMoles = []; comboCount = 0; spawnInterval = 800;
+    scoreEl.textContent = '0'; comboEl.textContent = 'x1'; timerEl.textContent = timeLeft;
+    gameRunning = true; startBtn.textContent = '游戏中...'; startBtn.disabled = true;
+    moleEls.forEach(m => { m.mole.classList.remove('up', 'whacked'); m.mole.textContent = '🐹'; m.hole.classList.remove('golden'); });
 
-    // Reset all moles
-    moleEls.forEach(m => m.classList.remove('up', 'whacked'));
-
-    // Timer
-    gameTimer = setInterval(() => {
-      timeLeft--;
-      timerEl.textContent = timeLeft;
-      if (timeLeft <= 0) endGame();
-    }, 1000);
-
-    // Mole spawner
+    gameTimer = setInterval(() => { timeLeft--; timerEl.textContent = timeLeft; if (timeLeft <= 0) endGame(); }, 1000);
     moleTimer = setInterval(() => {
-      popRandomMole();
-      // Sometimes spawn 2 moles
-      if (score > 10 && Math.random() < 0.3) {
-        setTimeout(() => { if (gameRunning) popRandomMole(); }, 200);
-      }
-    }, 800);
+      const countToSpawn = score > 20 ? randomInt(2, 3) : randomInt(1, 2);
+      for (let i = 0; i < countToSpawn; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 150); }
+      // Speed up over time
+      const newInterval = Math.max(400, 800 - (score > 30 ? 400 : score * 12));
+      if (newInterval !== spawnInterval) { clearInterval(moleTimer); spawnInterval = newInterval; moleTimer = setInterval(() => { const c = score > 20 ? randomInt(2, 3) : randomInt(1, 2); for (let i = 0; i < c; i++) { setTimeout(() => { if (gameRunning) popRandomMole(); }, i * 150); } }, spawnInterval); }
+    }, spawnInterval);
   }
 
   function endGame() {
-    gameRunning = false;
-    clearInterval(gameTimer);
-    clearInterval(moleTimer);
-    moleEls.forEach(m => m.classList.remove('up'));
-    startBtn.textContent = '再来一局';
-    startBtn.disabled = false;
-
+    gameRunning = false; clearInterval(gameTimer); clearInterval(moleTimer); clearTimeout(comboTimer);
+    moleEls.forEach(m => m.mole.classList.remove('up'));
+    startBtn.textContent = '再来一局'; startBtn.disabled = false;
     saveBestScore('whackamole', score);
-
-    setTimeout(() => {
-      showConfetti(50);
-      showModal({
-        emoji: '🔨',
-        title: '时间到！',
-        message: `你打中了 ${score} 只地鼠！\n最佳纪录: ${loadBestScore('whackamole')}`,
-        buttons: [
-          { text: '再来一局', cls: 'btn-primary', onClick: startGame },
-          { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
-        ]
-      });
-    }, 300);
+    setTimeout(() => { showConfetti(50); showModal({ emoji: '🔨', title: '时间到！', message: `你打中了 ${score} 分！\n最佳纪录: ${loadBestScore('whackamole')}`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: startGame }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
   }
 
   startBtn.addEventListener('click', startGame);
