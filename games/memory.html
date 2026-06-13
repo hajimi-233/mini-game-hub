@@ -12,7 +12,7 @@
       grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       width: 100%;
-      max-width: 400px;
+      max-width: 520px;
       perspective: 600px;
     }
     .memory-card {
@@ -35,12 +35,12 @@
     }
     .memory-card-front {
       background: var(--lavender);
-      font-size: 2rem;
+      font-size: 2.6rem;
     }
     .memory-card-back {
       background: var(--warm-yellow);
       transform: rotateY(180deg);
-      font-size: 2.4rem;
+      font-size: 3.2rem;
     }
     .memory-card.matched .memory-card-back { background: var(--mint); }
     .memory-card.matched {
@@ -70,9 +70,9 @@
     .diff-btn.active { background: var(--lavender); border-color: var(--lavender); font-weight: 700; }
 
     @media (max-width: 420px) {
-      .memory-board { gap: 6px; max-width: 320px; }
-      .memory-card-front { font-size: 1.5rem; }
-      .memory-card-back { font-size: 1.8rem; }
+      .memory-board { gap: 6px; max-width: 340px; }
+      .memory-card-front { font-size: 1.8rem; }
+      .memory-card-back { font-size: 2.2rem; }
     }
   </style>
 </head>
@@ -93,7 +93,7 @@
     <button class="diff-btn" data-grid="6x6">6x6 挑战</button>
   </div>
 
-  <div class="game-board" id="board"></div>
+  <div class="memory-board" id="board"></div>
 </div>
 
 <script src="../js/utils.js"></script>
