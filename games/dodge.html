@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🔴 躲避球</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    canvas#dodgeCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: #1a1a2e; touch-action: manipulation; max-width: 100%; }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🔴 躲避球</span>
+  </div>
+  <div class="score-bar">
+    <span class="score-item">⏱️ 时间: <strong id="time">0.0s</strong></span>
+    <span class="score-item">⭐ 最佳: <strong id="best">0.0s</strong></span>
+  </div>
+  <canvas id="dodgeCanvas"></canvas>
+  <button class="btn btn-primary" id="startBtn" style="margin-top:10px;">开始游戏</button>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const canvas = document.getElementById('dodgeCanvas'), ctx = canvas.getContext('2d');
+  const timeEl = document.getElementById('time'), bestEl = document.getElementById('best'), startBtn = document.getElementById('startBtn');
+
+  let player, obstacles, survivalTime, bestTime, gameRunning, animFrameId;
+  let spawnInterval, lastSpawn, particleTimer;
+
+  function resize() {
+    const w = Math.min(440, window.innerWidth - 24);
+    canvas.style.width = w + 'px'; canvas.style.height = (w * 1.2) + 'px';
+    canvas.width = w * 2; canvas.height = w * 2.4;
+  }
+
+  function init() {
+    resize();
+    player = { x: canvas.width / 2, y: canvas.height * 0.8, r: canvas.width * 0.04 };
+    obstacles = []; survivalTime = 0; bestTime = loadBestScore('dodge');
+    gameRunning = false; spawnInterval = 800; lastSpawn = 0; particleTimer = 0;
+    timeEl.textContent = '0.0s'; bestEl.textContent = bestTime.toFixed(1) + 's';
+    startBtn.textContent = '开始游戏';
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    draw();
+  }
+
+  function start() {
+    if (gameRunning) return;
+    gameRunning = true;
+    player.x = canvas.width / 2; player.y = canvas.height * 0.8;
+    obstacles = []; survivalTime = 0; spawnInterval = 800; lastSpawn = 0; particleTimer = 0;
+    timeEl.textContent = '0.0s';
+    startBtn.textContent = '移动鼠标躲闪!';
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function gameLoop(ts) {
+    if (!gameRunning) return;
+    survivalTime += 16.67;
+    timeEl.textContent = (survivalTime / 1000).toFixed(1) + 's';
+
+    // Spawn obstacles
+    if (ts - lastSpawn > spawnInterval) {
+      lastSpawn = ts;
+      const type = Math.random() < 0.2 ? 'fast' : (Math.random() < 0.15 ? 'big' : 'normal');
+      const x = Math.random() * canvas.width;
+      obstacles.push({
+        x, y: -30,
+        r: type === 'big' ? canvas.width * 0.06 : canvas.width * 0.03,
+        vy: type === 'fast' ? 4 + Math.random() * 3 : 1.5 + Math.random() * 2,
+        color: type === 'big' ? '#FFB5C2' : (type === 'fast' ? '#FFDAC1' : '#C7CEEA'),
+        type
+      });
+      // Increase difficulty
+      if (survivalTime > 3000) spawnInterval = Math.max(250, 800 - survivalTime * 0.04);
+      // Spawn extra for more chaos
+      if (survivalTime > 10000 && Math.random() < 0.4) {
+        const x2 = Math.random() * canvas.width;
+        obstacles.push({
+          x: x2, y: -30,
+          r: canvas.width * 0.03, vy: 2 + Math.random() * 2.5,
+          color: '#E2F0CB', type: 'normal'
+        });
+      }
+    }
+
+    // Update obstacles
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      obstacles[i].y += obstacles[i].vy;
+      if (obstacles[i].y - obstacles[i].r > canvas.height) { obstacles.splice(i, 1); }
+    }
+
+    // Collision
+    for (const o of obstacles) {
+      const dist = Math.hypot(player.x - o.x, player.y - o.y);
+      if (dist < player.r + o.r - 3) { endGame(); return; }
+    }
+
+    // Particle trail for player
+    particleTimer++;
+    if (particleTimer % 3 === 0) {
+      obstacles.push({ x: player.x + (Math.random() - 0.5) * 20, y: player.y + (Math.random() - 0.5) * 20, r: 2, vy: -0.5, color: 'rgba(255,255,255,0.3)', type: 'particle', life: 20 });
+    }
+
+    draw();
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function draw() {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h);
+
+    // Stars background
+    const starPositions = [[0.1,0.05],[0.3,0.15],[0.7,0.08],[0.9,0.2],[0.2,0.3],[0.5,0.25],[0.8,0.35]];
+    starPositions.forEach(([sx, sy]) => {
+      if (Math.floor(survivalTime / 500) % 2) return;
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath(); ctx.arc(w * sx, h * sy, 1.5, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // Border glow
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 2;
+    ctx.strokeRect(5, 5, w - 10, h - 10);
+
+    // Obstacles
+    for (const o of obstacles) {
+      if (o.type === 'particle') {
+        ctx.fillStyle = o.color; ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+        o.life--;
+        if (o.life <= 0) obstacles.splice(obstacles.indexOf(o), 1);
+        continue;
+      }
+      ctx.fillStyle = o.color;
+      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath(); ctx.arc(o.x - o.r * 0.25, o.y - o.r * 0.25, o.r * 0.35, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Player
+    const px = player.x, py = player.y, pr = player.r;
+    // Glow
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath(); ctx.arc(px, py, pr * 1.5, 0, Math.PI * 2); ctx.fill();
+    // Body
+    ctx.fillStyle = '#FF6B6B';
+    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.arc(px - pr * 0.3, py - pr * 0.3, pr * 0.45, 0, Math.PI * 2); ctx.fill();
+    // Border
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  function endGame() {
+    gameRunning = false;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    const timeSec = parseFloat((survivalTime / 1000).toFixed(1));
+    if (timeSec > bestTime) { bestTime = timeSec; saveBestScore('dodge', timeSec); bestEl.textContent = timeSec.toFixed(1) + 's'; }
+    startBtn.textContent = '再来一局';
+    setTimeout(() => { showModal({ emoji: '💥', title: '被砸中了！', message: `存活: ${timeSec}秒\n最佳: ${loadBestScore('dodge').toFixed(1)}秒`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: start }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
+  }
+
+  // Touch/mouse control
+  canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+    player.x = (e.clientX - rect.left) * scaleX;
+    player.y = (e.clientY - rect.top) * scaleY;
+    // Keep in bounds
+    player.x = Math.max(player.r, Math.min(canvas.width - player.r, player.x));
+    player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!gameRunning) { if (e.key === ' ') start(); return; }
+    const spd = 8;
+    if (e.key === 'ArrowLeft' || e.key === 'a') player.x = Math.max(player.r, player.x - spd);
+    if (e.key === 'ArrowRight' || e.key === 'd') player.x = Math.min(canvas.width - player.r, player.x + spd);
+    if (e.key === 'ArrowUp' || e.key === 'w') player.y = Math.max(player.r, player.y - spd);
+    if (e.key === 'ArrowDown' || e.key === 's') player.y = Math.min(canvas.height - player.r, player.y + spd);
+  });
+
+  startBtn.addEventListener('click', () => { if (!gameRunning) start(); });
+
+  window.addEventListener('resize', () => { resize(); draw(); });
+  init();
+})();
+</script>
+</body>
+</html>

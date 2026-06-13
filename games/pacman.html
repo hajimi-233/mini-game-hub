@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🕹️ 吃豆人</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    canvas#pacCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: #1a1a2e; touch-action: manipulation; max-width: 100%; }
+    .dpad { margin-top: 4px; }
+    @media (max-width: 500px) { canvas#pacCanvas { max-width: 340px; } }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🕹️ 吃豆人</span>
+  </div>
+  <div class="score-bar">
+    <span class="score-item">🏆 <strong id="score">0</strong></span>
+    <span class="score-item">❤️ <strong id="lives">3</strong></span>
+    <span class="score-item">⭐ <strong id="best">0</strong></span>
+  </div>
+  <canvas id="pacCanvas"></canvas>
+  <div class="dpad">
+    <button class="dpad-btn dpad-up">▲</button>
+    <button class="dpad-btn dpad-left">◀</button>
+    <button class="dpad-btn dpad-right">▶</button>
+    <button class="dpad-btn dpad-down">▼</button>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const canvas = document.getElementById('pacCanvas'), ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score'), livesEl = document.getElementById('lives'), bestEl = document.getElementById('best');
+
+  // Simple maze (1=wall, 0=path, 2=dot, 3=power)
+  const MAZE = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,2,1],
+    [1,3,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,3,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,2,1,1,1,1,1,2,1,2,1,1,1,2,1],
+    [1,2,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,2,1],
+    [1,1,1,1,1,2,1,1,1,0,1,0,1,1,1,2,1,1,1,1,1],
+    [0,0,0,0,1,2,1,0,0,0,0,0,0,0,1,2,1,0,0,0,0],
+    [1,1,1,1,1,2,1,0,1,1,0,1,1,0,1,2,1,1,1,1,1],
+    [0,0,0,0,0,2,0,0,1,0,0,0,1,0,0,2,0,0,0,0,0],
+    [1,1,1,1,1,2,1,0,1,1,1,1,1,0,1,2,1,1,1,1,1],
+    [0,0,0,0,1,2,1,0,0,0,0,0,0,0,1,2,1,0,0,0,0],
+    [1,1,1,1,1,2,1,0,1,1,1,1,1,0,1,2,1,1,1,1,1],
+    [1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,2,1],
+    [1,3,2,2,1,2,2,2,2,2,2,2,2,2,2,2,1,2,2,3,1],
+    [1,1,1,2,1,2,1,2,1,1,1,1,1,2,1,2,1,2,1,1,1],
+    [1,2,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,2,1],
+    [1,2,1,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ];
+
+  const ROWS = MAZE.length, COLS = MAZE[0].length;
+  let cellW, cellH, maze, dotsRemaining;
+  let pacman, ghosts, score, lives, gameRunning, animFrameId;
+  let direction, nextDirection, ghostTimer, ghostMode; // 0=scatter, 1=chase, 2=frightened
+  let frightenedTimer = 0, frightenedEnd = 0;
+
+  function resize() {
+    const size = Math.min(460, window.innerWidth - 24);
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    canvas.width = size * 2; canvas.height = size * 2;
+    cellW = canvas.width / COLS; cellH = canvas.height / ROWS;
+  }
+
+  function init() {
+    resize();
+    maze = MAZE.map(row => [...row]);
+    dotsRemaining = 0;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (maze[r][c] === 2 || maze[r][c] === 3) dotsRemaining++;
+
+    pacman = { x: 10, y: 15, r: cellW * 0.4, mouthAngle: 0.25, mouthOpen: true };
+    ghosts = [
+      { x: 9, y: 10, color: '#FF6B6B', dir: 'right', home: { x: 9, y: 10 } },
+      { x: 10, y: 10, color: '#FFB5C2', dir: 'up', home: { x: 10, y: 10 } },
+      { x: 11, y: 10, color: '#B5D8EB', dir: 'down', home: { x: 11, y: 10 } },
+      { x: 10, y: 9, color: '#FFDAC1', dir: 'left', home: { x: 10, y: 9 } },
+    ];
+    score = 0; lives = 3; gameRunning = true;
+    direction = 'right'; nextDirection = 'right';
+    ghostMode = 0; frightenedTimer = 0; frightenedEnd = 0;
+    ghostTimer = 0;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    scoreEl.textContent = '0'; livesEl.textContent = '3'; bestEl.textContent = loadBestScore('pacman');
+    lastTime = performance.now();
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  let lastTime = 0;
+
+  function isWall(x, y) {
+    const row = Math.round(y), col = Math.round(x);
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return true;
+    return maze[row][col] === 1;
+  }
+
+  function movePacman() {
+    const speed = 0.12;
+    // Try nextDirection first
+    let nx = pacman.x, ny = pacman.y;
+    if (nextDirection === 'right') nx += speed;
+    if (nextDirection === 'left') nx -= speed;
+    if (nextDirection === 'up') ny -= speed;
+    if (nextDirection === 'down') ny += speed;
+
+    const snapX = Math.round(pacman.x), snapY = Math.round(pacman.y);
+    const distToCenter = Math.abs(pacman.x - snapX) + Math.abs(pacman.y - snapY);
+
+    if (distToCenter < 0.15 && !isWall(nx, snapY) && !isWall(snapX, ny)) {
+      direction = nextDirection;
+    }
+
+    // Move in current direction
+    nx = pacman.x; ny = pacman.y;
+    if (direction === 'right') nx += speed;
+    if (direction === 'left') nx -= speed;
+    if (direction === 'up') ny -= speed;
+    if (direction === 'down') ny += speed;
+
+    if (!isWall(nx, pacman.y)) pacman.x = nx;
+    if (!isWall(pacman.x, ny)) pacman.y = ny;
+
+    // Tunnel wrap
+    if (pacman.x < 0) pacman.x = COLS - 1;
+    if (pacman.x >= COLS) pacman.x = 0;
+
+    // Eat dots
+    const col = Math.round(pacman.x), row = Math.round(pacman.y);
+    if (maze[row][col] === 2) { maze[row][col] = 0; dotsRemaining--; score += 10; scoreEl.textContent = score; }
+    if (maze[row][col] === 3) { maze[row][col] = 0; dotsRemaining--; score += 50; scoreEl.textContent = score; frightenedTimer = 300; frightenedEnd = performance.now() + 7000; }
+
+    // Pacman mouth animation
+    pacman.mouthAngle += pacman.mouthOpen ? 0.04 : -0.04;
+    if (pacman.mouthAngle > 0.8) pacman.mouthOpen = false;
+    if (pacman.mouthAngle < 0.1) pacman.mouthOpen = true;
+  }
+
+  function moveGhost(g) {
+    const now = performance.now();
+    const isFrightened = now < frightenedEnd;
+    const speed = isFrightened ? 0.04 : 0.08;
+
+    // Find available directions (no reverse unless stuck)
+    const dirs = ['right', 'left', 'up', 'down'];
+    const reverse = { right: 'left', left: 'right', up: 'down', down: 'right' };
+    const available = dirs.filter(d => {
+      if (d === reverse[g.dir]) return false;
+      let nx = g.x, ny = g.y;
+      if (d === 'right') nx += speed;
+      if (d === 'left') nx -= speed;
+      if (d === 'up') ny -= speed;
+      if (d === 'down') ny += speed;
+      return !isWall(nx, ny);
+    });
+    if (available.length === 0) { // Allow reverse if stuck
+      dirs.forEach(d => {
+        let nx = g.x, ny = g.y;
+        if (d === 'right') nx += speed; if (d === 'left') nx -= speed; if (d === 'up') ny -= speed; if (d === 'down') ny += speed;
+        if (!isWall(nx, ny) && !available.includes(d)) available.push(d);
+      });
+    }
+
+    if (isFrightened) {
+      g.dir = pickRandom(available);
+    } else {
+      // Simple chase: pick direction closest to pacman
+      let bestDir = available[0], bestDist = Infinity;
+      available.forEach(d => {
+        let nx = g.x, ny = g.y;
+        if (d === 'right') nx += speed; if (d === 'left') nx -= speed; if (d === 'up') ny -= speed; if (d === 'down') ny += speed;
+        const dist = Math.hypot(nx - pacman.x, ny - pacman.y);
+        if (dist < bestDist) { bestDist = dist; bestDir = d; }
+      });
+      g.dir = bestDir;
+    }
+
+    if (g.dir === 'right') g.x += speed;
+    if (g.dir === 'left') g.x -= speed;
+    if (g.dir === 'up') g.y -= speed;
+    if (g.dir === 'down') g.y += speed;
+  }
+
+  function checkCollisions() {
+    const now = performance.now();
+    ghosts.forEach(g => {
+      const dist = Math.hypot(pacman.x - g.x, pacman.y - g.y);
+      if (dist < 0.7) {
+        if (now < frightenedEnd) {
+          // Eat ghost
+          score += 200; scoreEl.textContent = score;
+          g.x = g.home.x; g.y = g.home.y;
+          g.dir = 'up';
+        } else {
+          // Die
+          lives--; livesEl.textContent = lives;
+          if (lives <= 0) endGame();
+          else {
+            pacman.x = 10; pacman.y = 15;
+            ghosts.forEach(gh => { gh.x = gh.home.x; gh.y = gh.home.y; gh.dir = 'up'; });
+            direction = 'right'; nextDirection = 'right';
+            frightenedTimer = 0; frightenedEnd = 0;
+          }
+        }
+      }
+    });
+  }
+
+  function gameLoop(timestamp) {
+    if (!gameRunning) return;
+    lastTime = timestamp;
+    movePacman();
+    ghosts.forEach(moveGhost);
+    checkCollisions();
+    draw();
+
+    if (dotsRemaining === 0) {
+      if (score > loadBestScore('pacman')) { saveBestScore('pacman', score); bestEl.textContent = score; }
+      gameRunning = false;
+      setTimeout(() => { showConfetti(60); showModal({ emoji: '🏆', title: '你赢了！', message: `得分: ${score}`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
+      return;
+    }
+
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function draw() {
+    const now = performance.now();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Maze
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        const x = c * cellW, y = r * cellH;
+        if (maze[r][c] === 1) {
+          ctx.fillStyle = '#16213E';
+          ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+          ctx.fillStyle = '#0F3460';
+          ctx.fillRect(x + 1, y + 1, cellW - 2, 2);
+          ctx.fillRect(x + 1, y + 1, 2, cellH - 2);
+        } else if (maze[r][c] === 2) {
+          ctx.fillStyle = '#FFDAC1';
+          ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
+        } else if (maze[r][c] === 3) {
+          ctx.fillStyle = '#FFF1B0';
+          ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.2, 0, Math.PI * 2); ctx.fill();
+          if (Math.floor(now / 300) % 2) { ctx.fillStyle = '#1a1a2e'; ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.13, 0, Math.PI * 2); ctx.fill(); }
+        }
+      }
+
+    // Ghosts
+    const isFrightened = now < frightenedEnd;
+    ghosts.forEach(g => {
+      const gx = g.x * cellW + cellW / 2, gy = g.y * cellH + cellH / 2;
+      ctx.fillStyle = isFrightened ? '#6B8EFF' : g.color;
+      ctx.beginPath(); ctx.arc(gx, gy, cellW * 0.38, Math.PI, 0); ctx.lineTo(gx + cellW * 0.38, gy + cellH * 0.35);
+      ctx.arc(gx, gy + cellH * 0.1, cellW * 0.38, 0, Math.PI, true); ctx.closePath(); ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(gx - cellW * 0.12, gy - cellH * 0.1, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(gx + cellW * 0.12, gy - cellH * 0.1, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath(); ctx.arc(gx - cellW * 0.1, gy - cellH * 0.12, cellW * 0.05, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(gx + cellW * 0.14, gy - cellH * 0.12, cellW * 0.05, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // Pacman
+    const px = pacman.x * cellW + cellW / 2, py = pacman.y * cellH + cellH / 2;
+    ctx.fillStyle = '#FFE066';
+    const mouthA = pacman.mouthAngle * Math.PI;
+    let startAngle = mouthA, endAngle = 2 * Math.PI - mouthA;
+    if (direction === 'left') { startAngle += Math.PI; endAngle += Math.PI; }
+    if (direction === 'up') { startAngle += Math.PI * 1.5; endAngle += Math.PI * 1.5; }
+    if (direction === 'down') { startAngle += Math.PI * 0.5; endAngle += Math.PI * 0.5; }
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.arc(px, py, cellW * 0.4, startAngle, endAngle); ctx.closePath(); ctx.fill();
+  }
+
+  function endGame() {
+    gameRunning = false;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    saveBestScore('pacman', score); bestEl.textContent = loadBestScore('pacman');
+    setTimeout(() => { showModal({ emoji: '👻', title: '游戏结束', message: `得分: ${score}\n最佳: ${loadBestScore('pacman')}`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: init }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
+  }
+
+  // Controls
+  const OPPOSITES = { up: 'down', down: 'up', left: 'right', right: 'left' };
+  document.addEventListener('keydown', (e) => {
+    if (!gameRunning) return;
+    const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
+    if (map[e.key]) { nextDirection = map[e.key]; e.preventDefault(); }
+  });
+
+  detectSwipe(canvas, (dir) => { if (gameRunning) nextDirection = dir; });
+  setupDpad({ up: () => { if (gameRunning) nextDirection = 'up'; }, down: () => { if (gameRunning) nextDirection = 'down'; }, left: () => { if (gameRunning) nextDirection = 'left'; }, right: () => { if (gameRunning) nextDirection = 'right'; } });
+
+  window.addEventListener('resize', resize);
+  init();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🐤 Flappy Bird</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    canvas#flappyCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: #B5D8EB; touch-action: manipulation; max-width: 100%; }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🐤 Flappy Bird</span>
+  </div>
+  <div class="score-bar">
+    <span class="score-item">🏆 <strong id="score">0</strong></span>
+    <span class="score-item">⭐ 最佳: <strong id="best">0</strong></span>
+  </div>
+  <canvas id="flappyCanvas"></canvas>
+  <button class="btn btn-primary" id="startBtn" style="margin-top:10px;">开始游戏</button>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const canvas = document.getElementById('flappyCanvas'), ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), startBtn = document.getElementById('startBtn');
+
+  let bird, pipes, score, bestScore, gameRunning, animFrameId;
+  let frameCount = 0;
+
+  function resize() {
+    const w = Math.min(420, window.innerWidth - 24);
+    canvas.style.width = w + 'px'; canvas.style.height = (w * 1.3) + 'px';
+    canvas.width = w * 2; canvas.height = w * 2.6;
+  }
+
+  function init() {
+    resize();
+    bird = { x: canvas.width * 0.25, y: canvas.height / 2, vy: 0, r: canvas.width * 0.05 };
+    pipes = [];
+    score = 0; bestScore = loadBestScore('flappy'); gameRunning = false; frameCount = 0;
+    scoreEl.textContent = '0'; bestEl.textContent = bestScore;
+    startBtn.textContent = '开始游戏';
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    draw();
+  }
+
+  function start() {
+    if (gameRunning) return;
+    gameRunning = true;
+    bird.y = canvas.height / 2; bird.vy = 0;
+    pipes = [];
+    score = 0; frameCount = 0;
+    scoreEl.textContent = '0';
+    startBtn.textContent = '点击屏幕跳跃!';
+    flap();
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function flap() { if (gameRunning) bird.vy = -8; }
+
+  function gameLoop(ts) {
+    if (!gameRunning) return;
+    // Gravity
+    bird.vy += 0.5;
+    bird.y += bird.vy;
+
+    // Spawn pipes
+    frameCount++;
+    if (frameCount % 90 === 0) {
+      const gap = canvas.height * 0.28;
+      const minH = canvas.height * 0.15;
+      const maxH = canvas.height - gap - minH;
+      const topH = minH + Math.random() * (maxH - minH);
+      pipes.push({ x: canvas.width, topH, bottomY: topH + gap, w: canvas.width * 0.11, passed: false });
+    }
+
+    // Update pipes
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      pipes[i].x -= 3;
+      if (pipes[i].x + pipes[i].w < 0) { pipes.splice(i, 1); continue; }
+      // Score
+      if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
+        pipes[i].passed = true; score++; scoreEl.textContent = score;
+        if (score > bestScore) { bestScore = score; saveBestScore('flappy', score); bestEl.textContent = bestScore; }
+      }
+    }
+
+    // Collision
+    if (bird.y - bird.r < 0 || bird.y + bird.r > canvas.height) endGame();
+    pipes.forEach(p => {
+      if (bird.x + bird.r > p.x && bird.x - bird.r < p.x + p.w && (bird.y - bird.r < p.topH || bird.y + bird.r > p.bottomY)) endGame();
+    });
+
+    draw();
+    animFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function draw() {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#B5D8EB'); grad.addColorStop(1, '#C7CEEA');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+
+    // Clouds
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    const cloudPositions = [[0.1, 0.1], [0.5, 0.15], [0.8, 0.08]];
+    cloudPositions.forEach(([cx, cy]) => {
+      const cwx = w * cx + (frameCount * 0.3) % w;
+      ctx.beginPath(); ctx.arc(cwx, h * cy, w * 0.08, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cwx + w * 0.06, h * cy - h * 0.02, w * 0.06, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cwx - w * 0.05, h * cy + h * 0.01, w * 0.05, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // Ground
+    ctx.fillStyle = '#E2F0CB'; ctx.fillRect(0, h * 0.88, w, h * 0.12);
+    ctx.fillStyle = '#B5EAD7'; ctx.fillRect(0, h * 0.88, w, 5);
+
+    // Pipes
+    pipes.forEach(p => {
+      ctx.fillStyle = '#4CAF50';
+      // Top pipe
+      ctx.beginPath(); ctx.roundRect(p.x, 0, p.w, p.topH, 5); ctx.fill();
+      ctx.fillStyle = '#66BB6A'; ctx.fillRect(p.x, 0, p.w * 0.3, p.topH);
+      ctx.fillStyle = '#4CAF50'; ctx.fillRect(p.x - 4, p.topH - 25, p.w + 8, 25);
+      // Bottom pipe
+      ctx.fillRect(p.x - 4, p.bottomY, p.w + 8, 25);
+      ctx.fillStyle = '#66BB6A'; ctx.fillRect(p.x, p.bottomY, p.w * 0.3, h - p.bottomY);
+      ctx.fillStyle = '#4CAF50';
+      ctx.beginPath(); ctx.roundRect(p.x, p.bottomY, p.w, h - p.bottomY, 5); ctx.fill();
+    });
+
+    // Bird
+    const bx = bird.x, by = bird.y, br = bird.r;
+    ctx.fillStyle = '#FFE066';
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    // Wing
+    ctx.fillStyle = '#FFD54F';
+    const wingFlap = Math.sin(frameCount * 0.3) * 0.3;
+    ctx.beginPath(); ctx.ellipse(bx - br * 0.3, by - br * 0.1, br * 0.7, br * 0.45, -0.3 + wingFlap, 0, Math.PI * 2); ctx.fill();
+    // Eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(bx + br * 0.4, by - br * 0.2, br * 0.35, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.beginPath(); ctx.arc(bx + br * 0.45, by - br * 0.2, br * 0.18, 0, Math.PI * 2); ctx.fill();
+    // Beak
+    ctx.fillStyle = '#FF8F00';
+    ctx.beginPath(); ctx.moveTo(bx + br * 0.8, by); ctx.lineTo(bx + br * 1.4, by - br * 0.1); ctx.lineTo(bx + br * 0.8, by - br * 0.25); ctx.closePath(); ctx.fill();
+  }
+
+  function endGame() {
+    gameRunning = false;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    startBtn.textContent = '再来一局';
+    setTimeout(() => { showModal({ emoji: '🐤', title: '撞到了！', message: `得分: ${score}\n最佳: ${loadBestScore('flappy')}`, buttons: [{ text: '再来一局', cls: 'btn-primary', onClick: start }, { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }] }); }, 300);
+  }
+
+  canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!gameRunning) start(); else flap(); });
+  document.addEventListener('keydown', (e) => { if (e.key === ' ') { e.preventDefault(); if (!gameRunning) start(); else flap(); } });
+  startBtn.addEventListener('click', () => { if (!gameRunning) start(); });
+
+  window.addEventListener('resize', resize);
+  init();
+})();
+</script>
+</body>
+</html>
