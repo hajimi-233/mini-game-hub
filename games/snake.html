@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🐍 贪吃蛇</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .snake-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    canvas#snakeCanvas {
+      display: block;
+      border-radius: 16px;
+      box-shadow: var(--shadow-card);
+      background: var(--white);
+      touch-action: manipulation;
+      max-width: 100%;
+    }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🐍 贪吃蛇</span>
+  </div>
+
+  <div class="score-bar">
+    <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
+    <span class="score-item">⭐ 最佳: <strong id="best">0</strong></span>
+  </div>
+
+  <div class="snake-wrapper">
+    <canvas id="snakeCanvas"></canvas>
+    <div class="dpad">
+      <button class="dpad-btn dpad-up">▲</button>
+      <button class="dpad-btn dpad-left">◀</button>
+      <button class="dpad-btn dpad-right">▶</button>
+      <button class="dpad-btn dpad-down">▼</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const canvas = document.getElementById('snakeCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+
+  const GRID = 20;
+  const COLS = 20, ROWS = 20;
+
+  let snake, food, direction, nextDirection, score, gameOver, gameLoop, speed;
+  let particles = [];
+
+  function resize() {
+    const size = Math.min(400, window.innerWidth - 32);
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function init() {
+    resize();
+    snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+    direction = 'right';
+    nextDirection = 'right';
+    score = 0;
+    gameOver = false;
+    speed = 130;
+    particles = [];
+    scoreEl.textContent = '0';
+    bestEl.textContent = loadBestScore('snake');
+    if (gameLoop) clearInterval(gameLoop);
+    placeFood();
+    draw();
+    gameLoop = setInterval(tick, speed);
+  }
+
+  function placeFood() {
+    do {
+      food = { x: randomInt(0, COLS - 1), y: randomInt(0, ROWS - 1) };
+    } while (snake.some(s => s.x === food.x && s.y === food.y));
+  }
+
+  function tick() {
+    if (gameOver) return;
+    direction = nextDirection;
+    const head = { ...snake[0] };
+    if (direction === 'right') head.x++;
+    if (direction === 'left') head.x--;
+    if (direction === 'up') head.y--;
+    if (direction === 'down') head.y++;
+
+    // Wall collision
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+      endGame(); return;
+    }
+    // Self collision
+    if (snake.some(s => s.x === head.x && s.y === head.y)) {
+      endGame(); return;
+    }
+
+    snake.unshift(head);
+    if (head.x === food.x && head.y === food.y) {
+      score++;
+      scoreEl.textContent = score;
+      placeFood();
+      spawnParticles(food.x, food.y);
+      // Speed up
+      if (speed > 60) {
+        clearInterval(gameLoop);
+        speed = Math.max(60, 130 - score * 3);
+        gameLoop = setInterval(tick, speed);
+      }
+    } else {
+      snake.pop();
+    }
+    draw();
+  }
+
+  function spawnParticles(gx, gy) {
+    for (let i = 0; i < 6; i++) {
+      particles.push({ x: gx, y: gy, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3, life: 15 });
+    }
+  }
+
+  function draw() {
+    const cs = canvas.width / (window.devicePixelRatio || 1) / COLS;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Grid
+    ctx.fillStyle = '#FFFBF7';
+    ctx.fillRect(0, 0, cs * COLS, cs * ROWS);
+    for (let x = 0; x < COLS; x++) {
+      for (let y = 0; y < ROWS; y++) {
+        if ((x + y) % 2 === 0) {
+          ctx.fillStyle = '#FFF5F0';
+          ctx.fillRect(x * cs, y * cs, cs, cs);
+        }
+      }
+    }
+
+    // Food
+    ctx.font = `${cs * 0.8}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🍎', food.x * cs + cs / 2, food.y * cs + cs / 2);
+
+    // Snake
+    snake.forEach((s, i) => {
+      const x = s.x * cs, y = s.y * cs;
+      ctx.fillStyle = i === 0 ? '#81C784' : '#B5EAD7';
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, cs - 2, cs - 2, 6);
+      ctx.fill();
+      if (i === 0) {
+        // Eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        let ex = x + cs / 2, ey = y + cs / 2;
+        if (direction === 'right') { ctx.arc(ex + 4, ey - 3, 3, 0, Math.PI * 2); ctx.arc(ex + 4, ey + 3, 3, 0, Math.PI * 2); }
+        else if (direction === 'left') { ctx.arc(ex - 4, ey - 3, 3, 0, Math.PI * 2); ctx.arc(ex - 4, ey + 3, 3, 0, Math.PI * 2); }
+        else if (direction === 'up') { ctx.arc(ex - 3, ey - 4, 3, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 4, 3, 0, Math.PI * 2); }
+        else { ctx.arc(ex - 3, ey + 4, 3, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 4, 3, 0, Math.PI * 2); }
+        ctx.fill();
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        if (direction === 'right') { ctx.arc(ex + 5, ey - 3, 1.5, 0, Math.PI * 2); ctx.arc(ex + 5, ey + 3, 1.5, 0, Math.PI * 2); }
+        else if (direction === 'left') { ctx.arc(ex - 5, ey - 3, 1.5, 0, Math.PI * 2); ctx.arc(ex - 5, ey + 3, 1.5, 0, Math.PI * 2); }
+        else if (direction === 'up') { ctx.arc(ex - 3, ey - 5, 1.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey - 5, 1.5, 0, Math.PI * 2); }
+        else { ctx.arc(ex - 3, ey + 5, 1.5, 0, Math.PI * 2); ctx.arc(ex + 3, ey + 5, 1.5, 0, Math.PI * 2); }
+        ctx.fill();
+      }
+    });
+
+    // Particles
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => {
+      ctx.fillStyle = `rgba(255,181,194,${p.life / 15})`;
+      ctx.beginPath();
+      ctx.arc(p.x * cs + cs / 2, p.y * cs + cs / 2, 4, 0, Math.PI * 2);
+      ctx.fill();
+      p.x += p.vx * 0.1;
+      p.y += p.vy * 0.1;
+      p.life--;
+    });
+
+    if (!gameOver && particles.length > 0) requestAnimationFrame(draw);
+  }
+
+  function endGame() {
+    gameOver = true;
+    clearInterval(gameLoop);
+    saveBestScore('snake', score);
+    bestEl.textContent = loadBestScore('snake');
+
+    setTimeout(() => {
+      showModal({
+        emoji: '🐍',
+        title: '游戏结束',
+        message: `得分: ${score}\n最佳纪录: ${loadBestScore('snake')}`,
+        buttons: [
+          { text: '再来一局', cls: 'btn-primary', onClick: init },
+          { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
+        ]
+      });
+    }, 200);
+  }
+
+  // Keyboard
+  const OPPOSITES = { up: 'down', down: 'up', left: 'right', right: 'left' };
+  document.addEventListener('keydown', (e) => {
+    const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
+    const dir = map[e.key];
+    if (dir && OPPOSITES[dir] !== direction) nextDirection = dir;
+    e.preventDefault();
+  });
+
+  // Swipe
+  detectSwipe(canvas, (dir) => {
+    if (OPPOSITES[dir] !== direction) nextDirection = dir;
+  });
+
+  // D-pad
+  setupDpad({
+    up: () => { if (OPPOSITES.up !== direction) nextDirection = 'up'; },
+    down: () => { if (OPPOSITES.down !== direction) nextDirection = 'down'; },
+    left: () => { if (OPPOSITES.left !== direction) nextDirection = 'left'; },
+    right: () => { if (OPPOSITES.right !== direction) nextDirection = 'right'; },
+  });
+
+  window.addEventListener('resize', resize);
+  init();
+})();
+</script>
+</body>
+</html>

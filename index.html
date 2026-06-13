@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🎮 小游戏大厅</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .lobby-footer {
+      text-align: center;
+      padding: 8px 20px 36px;
+      font-size: 0.85rem;
+      color: var(--text-light);
+    }
+    .lobby-footer span { color: var(--pink); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="lobby-header">
+      <div class="logo">🎮</div>
+      <h1>小游戏大厅</h1>
+      <p class="subtitle">点击卡片，开始游戏！</p>
+    </header>
+
+    <div class="game-grid">
+      <a class="game-card" href="games/snake.html">
+        <span class="card-icon">🐍</span>
+        <span class="card-title">贪吃蛇</span>
+        <span class="card-desc">经典街机，吃豆子变长</span>
+      </a>
+
+      <a class="game-card" href="games/2048.html">
+        <span class="card-icon">🔢</span>
+        <span class="card-title">2048</span>
+        <span class="card-desc">滑动合并，挑战 2048</span>
+      </a>
+
+      <a class="game-card" href="games/memory.html">
+        <span class="card-icon">🧠</span>
+        <span class="card-title">记忆翻牌</span>
+        <span class="card-desc">翻牌配对，考验记忆力</span>
+      </a>
+
+      <a class="game-card" href="games/minesweeper.html">
+        <span class="card-icon">💣</span>
+        <span class="card-title">扫雷</span>
+        <span class="card-desc">逻辑推理，避开地雷</span>
+      </a>
+
+      <a class="game-card" href="games/whackamole.html">
+        <span class="card-icon">🔨</span>
+        <span class="card-title">打地鼠</span>
+        <span class="card-desc">眼疾手快，敲敲敲</span>
+      </a>
+
+      <a class="game-card" href="games/tetris.html">
+        <span class="card-icon">🧱</span>
+        <span class="card-title">俄罗斯方块</span>
+        <span class="card-desc">经典消除，永不过时</span>
+      </a>
+    </div>
+
+    <p class="lobby-footer">Made with <span>❤</span> · 6 games · No ads · Just fun</p>
+  </div>
+</body>
+</html>

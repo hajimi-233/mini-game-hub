@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🧠 记忆翻牌</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .memory-board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 400px;
+      perspective: 600px;
+    }
+    .memory-card {
+      aspect-ratio: 1;
+      cursor: pointer;
+      position: relative;
+    }
+    .memory-card-inner {
+      position: relative;
+      width: 100%; height: 100%;
+      transition: transform 0.45s var(--ease-bounce);
+      transform-style: preserve-3d;
+    }
+    .memory-card.flipped .memory-card-inner { transform: rotateY(180deg); }
+    .memory-card-front, .memory-card-back {
+      position: absolute; inset: 0;
+      border-radius: var(--radius-game);
+      backface-visibility: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .memory-card-front {
+      background: var(--lavender);
+      font-size: 2rem;
+    }
+    .memory-card-back {
+      background: var(--warm-yellow);
+      transform: rotateY(180deg);
+      font-size: 2.4rem;
+    }
+    .memory-card.matched .memory-card-back { background: var(--mint); }
+    .memory-card.matched {
+      pointer-events: none;
+      animation: matchPop 0.4s var(--ease-bounce);
+    }
+    @keyframes matchPop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+      100% { transform: scale(1); }
+    }
+    .diff-selector {
+      display: flex; gap: 8px; margin-bottom: 16px;
+      flex-wrap: wrap; justify-content: center;
+    }
+    .diff-btn {
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      border: 2px solid var(--lavender);
+      background: var(--white);
+      border-radius: 12px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all 0.2s var(--ease-smooth);
+      color: var(--text);
+    }
+    .diff-btn.active { background: var(--lavender); border-color: var(--lavender); font-weight: 700; }
+
+    @media (max-width: 420px) {
+      .memory-board { gap: 6px; max-width: 320px; }
+      .memory-card-front { font-size: 1.5rem; }
+      .memory-card-back { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🧠 记忆翻牌</span>
+  </div>
+
+  <div class="score-bar">
+    <span class="score-item">🏆 步数: <strong id="moves">0</strong></span>
+    <span class="score-item">⏱️ <strong id="timer">00:00</strong></span>
+  </div>
+
+  <div class="diff-selector">
+    <button class="diff-btn active" data-grid="4x4">4x4 简单</button>
+    <button class="diff-btn" data-grid="6x6">6x6 挑战</button>
+  </div>
+
+  <div class="game-board" id="board"></div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const boardEl = document.getElementById('board');
+  const movesEl = document.getElementById('moves');
+  const timerEl = document.getElementById('timer');
+
+  const EMOJIS = ['🐶','🐱','🐼','🐨','🐸','🦊','🐰','🐻','🐧','🐙','🦄','🐳','🐝','🦋','🐞','🦀','🐢','🌸','🍎','⭐','🎈','🍕','🎵','🌈'];
+
+  let cards = [], flipped = [], matched = 0, moves = 0, lockBoard = false;
+  let timerInterval = null, seconds = 0, gridCols = 4, gridRows = 4;
+
+  function initGame() {
+    clearInterval(timerInterval);
+    cards = []; flipped = []; matched = 0; moves = 0; lockBoard = false; seconds = 0;
+    movesEl.textContent = '0';
+    timerEl.textContent = '00:00';
+
+    const pairsNeeded = (gridCols * gridRows) / 2;
+    const picked = shuffle([...EMOJIS]).slice(0, pairsNeeded);
+    cards = shuffle([...picked, ...picked].map((emoji, i) => ({ emoji, id: i, matched: false })));
+
+    boardEl.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
+    boardEl.innerHTML = '';
+    cards.forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'memory-card';
+      card.dataset.index = i;
+      card.innerHTML = `
+        <div class="memory-card-inner">
+          <div class="memory-card-front">❓</div>
+          <div class="memory-card-back">${c.emoji}</div>
+        </div>`;
+      card.addEventListener('click', () => flipCard(i, card));
+      boardEl.appendChild(card);
+    });
+  }
+
+  function flipCard(index, cardEl) {
+    if (lockBoard) return;
+    if (cardEl.classList.contains('flipped') || cardEl.classList.contains('matched')) return;
+    if (flipped.length >= 2) return;
+    if (flipped.length === 1 && flipped[0].index === index) return;
+
+    cardEl.classList.add('flipped');
+    flipped.push({ index, cardEl });
+
+    if (flipped.length === 2) {
+      moves++;
+      movesEl.textContent = moves;
+      if (!timerInterval) startTimer();
+      checkMatch();
+    }
+  }
+
+  function checkMatch() {
+    const [a, b] = flipped;
+    if (cards[a.index].emoji === cards[b.index].emoji) {
+      cards[a.index].matched = cards[b.index].matched = true;
+      a.cardEl.classList.add('matched');
+      b.cardEl.classList.add('matched');
+      matched++;
+      flipped = [];
+
+      if (matched === (gridCols * gridRows) / 2) {
+        clearInterval(timerInterval);
+        setTimeout(() => {
+          showConfetti(80);
+          showModal({
+            emoji: '🎉',
+            title: '恭喜过关！',
+            message: `步数: ${moves} | 用时: ${formatTime(seconds)}`,
+            buttons: [
+              { text: '再来一局', cls: 'btn-primary', onClick: initGame },
+              { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
+            ]
+          });
+        }, 500);
+      }
+    } else {
+      lockBoard = true;
+      setTimeout(() => {
+        a.cardEl.classList.remove('flipped');
+        b.cardEl.classList.remove('flipped');
+        flipped = [];
+        lockBoard = false;
+      }, 600);
+    }
+  }
+
+  function startTimer() {
+    timerInterval = setInterval(() => {
+      seconds++;
+      timerEl.textContent = formatTime(seconds);
+    }, 1000);
+  }
+
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const grid = btn.dataset.grid;
+      gridCols = grid === '4x4' ? 4 : 6;
+      gridRows = grid === '4x4' ? 4 : 6;
+      initGame();
+    });
+  });
+
+  initGame();
+})();
+</script>
+</body>
+</html>

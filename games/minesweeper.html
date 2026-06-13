@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>💣 扫雷</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .mine-board {
+      display: grid;
+      gap: 2px;
+      background: #D4C5C9;
+      border-radius: 12px;
+      padding: 4px;
+      width: fit-content;
+      margin: 0 auto;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .mine-cell {
+      width: 36px; height: 36px;
+      background: #E8DDE0;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-body);
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .mine-cell:active { background: #D4C5C9; }
+    .mine-cell.revealed {
+      background: #FFFBF7;
+      cursor: default;
+    }
+    .mine-cell.revealed:active { background: #FFFBF7; }
+    .mine-cell.mine-exploded { background: #FFB5C2; }
+    .mine-cell.flagged { background: #FFDAC1; }
+    .mine-cell .n1 { color: #4A90D9; }
+    .mine-cell .n2 { color: #5DAE4E; }
+    .mine-cell .n3 { color: #E84646; }
+    .mine-cell .n4 { color: #7B4FBF; }
+    .mine-cell .n5 { color: #C44; }
+    .mine-cell .n6 { color: #3A8; }
+    .mine-cell .n7 { color: #555; }
+    .mine-cell .n8 { color: #999; }
+
+    .reset-btn {
+      font-size: 1.6rem; padding: 4px 14px;
+      background: var(--white);
+      border: none; border-radius: 12px;
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      transition: transform 0.2s var(--ease-bounce);
+    }
+    .reset-btn:hover { transform: scale(1.1); }
+    .reset-btn:active { transform: scale(0.9); }
+
+    @media (max-width: 420px) {
+      .mine-cell { width: 30px; height: 30px; font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">💣 扫雷</span>
+  </div>
+
+  <div class="score-bar">
+    <span class="score-item">💣 <strong id="mineCount">10</strong></span>
+    <button class="reset-btn" id="resetBtn">😊</button>
+    <span class="score-item">⏱️ <strong id="timer">000</strong></span>
+  </div>
+
+  <div class="game-board" id="board"></div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const ROWS = 9, COLS = 9, MINES = 10;
+  let board = [], gameOver = false, firstClick = true;
+  let revealed = 0, flagged = 0, timerInterval = null, seconds = 0;
+
+  const boardEl = document.getElementById('board');
+  const mineCountEl = document.getElementById('mineCount');
+  const timerEl = document.getElementById('timer');
+  const resetBtn = document.getElementById('resetBtn');
+
+  function init() {
+    gameOver = false; firstClick = true; revealed = 0; flagged = 0; seconds = 0;
+    clearInterval(timerInterval);
+    timerEl.textContent = '000';
+    mineCountEl.textContent = MINES;
+    resetBtn.textContent = '😊';
+
+    board = Array.from({ length: ROWS }, (_, r) =>
+      Array.from({ length: COLS }, (_, c) => ({
+        mine: false, revealed: false, flagged: false, adjacentMines: 0, r, c
+      }))
+    );
+
+    render();
+  }
+
+  function placeMines(safeR, safeC) {
+    const safe = new Set();
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++) {
+        const nr = safeR + dr, nc = safeC + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) safe.add(nr * COLS + nc);
+      }
+
+    let placed = 0;
+    while (placed < MINES) {
+      const r = randomInt(0, ROWS - 1), c = randomInt(0, COLS - 1);
+      if (safe.has(r * COLS + c) || board[r][c].mine) continue;
+      board[r][c].mine = true;
+      placed++;
+    }
+
+    // Calc adjacent counts
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        if (board[r][c].mine) continue;
+        let count = 0;
+        for (let dr = -1; dr <= 1; dr++)
+          for (let dc = -1; dc <= 1; dc++) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && board[nr][nc].mine) count++;
+          }
+        board[r][c].adjacentMines = count;
+      }
+  }
+
+  function render() {
+    boardEl.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+    boardEl.innerHTML = '';
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'mine-cell';
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+        const b = board[r][c];
+        if (b.revealed) {
+          cell.classList.add('revealed');
+          if (b.mine) {
+            cell.classList.add('mine-exploded');
+            cell.textContent = '💣';
+          } else if (b.adjacentMines > 0) {
+            cell.innerHTML = `<span class="n${b.adjacentMines}">${b.adjacentMines}</span>`;
+          }
+        } else if (b.flagged) {
+          cell.classList.add('flagged');
+          cell.textContent = '🚩';
+        }
+
+        cell.addEventListener('click', () => cellClick(r, c));
+        cell.addEventListener('contextmenu', (e) => { e.preventDefault(); cellRightClick(r, c); });
+
+        // Long press for flag on touch
+        let longPressTimer;
+        cell.addEventListener('touchstart', (e) => {
+          longPressTimer = setTimeout(() => cellRightClick(r, c), 500);
+        });
+        cell.addEventListener('touchend', () => clearTimeout(longPressTimer));
+        cell.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+
+        boardEl.appendChild(cell);
+      }
+  }
+
+  function startTimer() {
+    if (timerInterval) return;
+    timerInterval = setInterval(() => {
+      seconds++;
+      if (seconds > 999) seconds = 999;
+      timerEl.textContent = String(seconds).padStart(3, '0');
+    }, 1000);
+  }
+
+  function cellClick(r, c) {
+    if (gameOver) return;
+    const b = board[r][c];
+    if (b.revealed || b.flagged) return;
+
+    if (firstClick) {
+      firstClick = false;
+      placeMines(r, c);
+      startTimer();
+    }
+
+    reveal(r, c);
+    render();
+
+    if (b.mine) {
+      gameOver = true;
+      clearInterval(timerInterval);
+      resetBtn.textContent = '😵';
+      // Reveal all mines
+      for (let rr = 0; rr < ROWS; rr++)
+        for (let cc = 0; cc < COLS; cc++)
+          if (board[rr][cc].mine) { board[rr][cc].revealed = true; }
+      render();
+      setTimeout(() => {
+        showModal({
+          emoji: '💥',
+          title: '踩到雷了！',
+          message: `用时: ${seconds}秒`,
+          buttons: [
+            { text: '再来一局', cls: 'btn-primary', onClick: init },
+            { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
+          ]
+        });
+      }, 400);
+    }
+
+    if (revealed === ROWS * COLS - MINES) {
+      gameOver = true;
+      clearInterval(timerInterval);
+      resetBtn.textContent = '😎';
+      saveBestScore('minesweeper', seconds);
+      setTimeout(() => {
+        showConfetti(80);
+        showModal({
+          emoji: '🏆',
+          title: '扫雷成功！',
+          message: `用时: ${seconds}秒\n最佳纪录: ${loadBestScore('minesweeper')}秒`,
+          buttons: [
+            { text: '再来一局', cls: 'btn-primary', onClick: init },
+            { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
+          ]
+        });
+      }, 400);
+    }
+  }
+
+  function reveal(r, c) {
+    const b = board[r][c];
+    if (b.revealed || b.flagged) return;
+    b.revealed = true;
+    revealed++;
+
+    if (b.adjacentMines === 0 && !b.mine) {
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) reveal(nr, nc);
+        }
+    }
+  }
+
+  function cellRightClick(r, c) {
+    if (gameOver) return;
+    const b = board[r][c];
+    if (b.revealed) return;
+    b.flagged = !b.flagged;
+    flagged += b.flagged ? 1 : -1;
+    mineCountEl.textContent = MINES - flagged;
+    render();
+  }
+
+  resetBtn.addEventListener('click', init);
+
+  init();
+})();
+</script>
+</body>
+</html>

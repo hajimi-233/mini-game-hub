@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🔨 打地鼠</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .mole-board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: 100%;
+      max-width: 360px;
+      padding: 16px;
+    }
+    .mole-hole {
+      position: relative;
+      aspect-ratio: 1;
+      background: var(--peach);
+      border-radius: 50%;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: inset 0 6px 12px rgba(0,0,0,0.1);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mole-hole::after {
+      content: '';
+      position: absolute; bottom: 0; left: 10%; right: 10%; height: 40%;
+      background: rgba(0,0,0,0.06);
+      border-radius: 50%;
+    }
+    .mole {
+      position: absolute;
+      left: 50%; bottom: 0;
+      transform: translate(-50%, 100%);
+      font-size: 3rem;
+      line-height: 1;
+      transition: transform 0.12s ease-out;
+      pointer-events: none;
+    }
+    .mole.up { transform: translate(-50%, 10%); }
+    .mole.whacked {
+      transform: translate(-50%, 10%) scale(0.3);
+      transition: transform 0.1s ease;
+    }
+
+    @media (max-width: 420px) {
+      .mole-board { gap: 10px; max-width: 300px; }
+      .mole { font-size: 2.4rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="game-page">
+  <div class="game-header">
+    <button class="back-btn" onclick="window.location.href='../index.html'">← 返回</button>
+    <span class="game-title">🔨 打地鼠</span>
+  </div>
+
+  <div class="score-bar">
+    <span class="score-item">🏆 得分: <strong id="score">0</strong></span>
+    <span class="score-item">⏱️ <strong id="timer">30</strong></span>
+  </div>
+
+  <button class="btn btn-primary" id="startBtn">开始游戏</button>
+
+  <div class="game-board">
+    <div class="mole-board" id="moleBoard">
+    </div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+(function() {
+  const ROWS = 3, COLS = 3, TOTAL = ROWS * COLS;
+  const GAME_DURATION = 30;
+
+  let score = 0, timeLeft = GAME_DURATION;
+  let gameRunning = false, gameTimer = null, moleTimer = null;
+  let activeMoles = [];
+
+  const scoreEl = document.getElementById('score');
+  const timerEl = document.getElementById('timer');
+  const startBtn = document.getElementById('startBtn');
+  const boardEl = document.getElementById('moleBoard');
+
+  const holes = [];
+  const moleEls = [];
+
+  // Build board
+  for (let i = 0; i < TOTAL; i++) {
+    const hole = document.createElement('div');
+    hole.className = 'mole-hole';
+    hole.dataset.index = i;
+    const mole = document.createElement('div');
+    mole.className = 'mole';
+    mole.textContent = '🐹';
+    hole.appendChild(mole);
+    boardEl.appendChild(hole);
+
+    hole.addEventListener('pointerdown', () => whack(i));
+    holes.push(hole);
+    moleEls.push(mole);
+  }
+
+  function whack(index) {
+    if (!gameRunning) return;
+    const moleIdx = activeMoles.findIndex(m => m.index === index && m.visible);
+    if (moleIdx === -1) return;
+
+    // Hit!
+    activeMoles[moleIdx].visible = false;
+    moleEls[index].classList.remove('up');
+    moleEls[index].classList.add('whacked');
+    score++;
+    scoreEl.textContent = score;
+
+    setTimeout(() => {
+      moleEls[index].classList.remove('whacked');
+    }, 150);
+  }
+
+  function popRandomMole() {
+    if (!gameRunning) return;
+
+    // Try to pop a mole in an empty hole
+    const occupied = activeMoles.filter(m => m.visible).map(m => m.index);
+    const available = Array.from({ length: TOTAL }, (_, i) => i).filter(i => !occupied.includes(i));
+    if (available.length === 0) return;
+
+    const index = pickRandom(available);
+    activeMoles.push({ index, visible: true });
+    moleEls[index].classList.add('up');
+
+    // Hide after random duration
+    const showDuration = Math.max(500, 1000 - score * 20);
+    setTimeout(() => {
+      const m = activeMoles.find(m => m.index === index && m.visible);
+      if (m) {
+        m.visible = false;
+        moleEls[index].classList.remove('up');
+      }
+    }, showDuration);
+  }
+
+  function startGame() {
+    score = 0; timeLeft = GAME_DURATION;
+    activeMoles = [];
+    scoreEl.textContent = '0';
+    timerEl.textContent = timeLeft;
+    gameRunning = true;
+    startBtn.textContent = '游戏中...';
+    startBtn.disabled = true;
+
+    // Reset all moles
+    moleEls.forEach(m => m.classList.remove('up', 'whacked'));
+
+    // Timer
+    gameTimer = setInterval(() => {
+      timeLeft--;
+      timerEl.textContent = timeLeft;
+      if (timeLeft <= 0) endGame();
+    }, 1000);
+
+    // Mole spawner
+    moleTimer = setInterval(() => {
+      popRandomMole();
+      // Sometimes spawn 2 moles
+      if (score > 10 && Math.random() < 0.3) {
+        setTimeout(() => { if (gameRunning) popRandomMole(); }, 200);
+      }
+    }, 800);
+  }
+
+  function endGame() {
+    gameRunning = false;
+    clearInterval(gameTimer);
+    clearInterval(moleTimer);
+    moleEls.forEach(m => m.classList.remove('up'));
+    startBtn.textContent = '再来一局';
+    startBtn.disabled = false;
+
+    saveBestScore('whackamole', score);
+
+    setTimeout(() => {
+      showConfetti(50);
+      showModal({
+        emoji: '🔨',
+        title: '时间到！',
+        message: `你打中了 ${score} 只地鼠！\n最佳纪录: ${loadBestScore('whackamole')}`,
+        buttons: [
+          { text: '再来一局', cls: 'btn-primary', onClick: startGame },
+          { text: '返回大厅', cls: 'btn-secondary', onClick: () => { window.location.href = '../index.html'; } }
+        ]
+      });
+    }, 300);
+  }
+
+  startBtn.addEventListener('click', startGame);
+})();
+</script>
+</body>
+</html>
