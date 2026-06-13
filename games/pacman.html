@@ -7,8 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
   <style>
-    canvas#pacCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: #1a1a2e; touch-action: manipulation; max-width: 100%; }
-    @media (max-width: 500px) { canvas#pacCanvas { max-width: 340px; } }
+    canvas#pacCanvas { display: block; border-radius: 16px; box-shadow: var(--shadow-card); background: #111122; touch-action: manipulation; max-width: 100%; margin: 0 auto; }
   </style>
 </head>
 <body>
@@ -22,7 +21,7 @@
     <span class="score-item">❤️ <strong id="lives">3</strong></span>
     <span class="score-item">⭐ <strong id="best">0</strong></span>
   </div>
-  <canvas id="pacCanvas"></canvas>
+  <canvas id="pacCanvas" width="630" height="690"></canvas>
   <div class="dpad">
     <button class="dpad-btn dpad-up">▲</button>
     <button class="dpad-btn dpad-left">◀</button>
@@ -38,6 +37,9 @@
   const scoreEl = document.getElementById('score'), livesEl = document.getElementById('lives'), bestEl = document.getElementById('best');
 
   const COLS = 21, ROWS = 23;
+  const CW = 30, CH = 30; // cell size in pixels
+  const W = COLS * CW, H = ROWS * CH;
+
   // 0=empty, 1=wall, 2=dot, 3=power
   const MAZE = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -63,31 +65,25 @@
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
   ];
 
-  let cellW, cellH, maze, dotsRemaining;
+  canvas.width = W; canvas.height = H;
+
+  let maze, dotsRemaining;
   let pacman, ghosts, score, lives, gameRunning, animFrameId;
   let direction, nextDirection;
   let frightenedEnd = 0;
   const MOVES = { right: [1,0], left: [-1,0], up: [0,-1], down: [0,1] };
   const REVERSE = { right:'left', left:'right', up:'down', down:'up' };
 
-  function resize() {
-    const size = Math.min(460, window.innerWidth - 24);
-    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
-    canvas.width = size * 2; canvas.height = size * 2;
-    cellW = canvas.width / COLS; cellH = canvas.height / ROWS;
-  }
-
   function init() {
-    resize();
     maze = MAZE.map(row => [...row]);
     dotsRemaining = 0;
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (maze[r][c] === 2 || maze[r][c] === 3) dotsRemaining++;
 
-    pacman = { x: 10, y: 15, mouthOpen: true, mouthAngle: 0.3 };
+    pacman = { x: 10 * CW + CW/2, y: 15 * CH + CH/2, mouthOpen: true, mouthAngle: 0.3 };
     ghosts = [
-      { x: 9, y: 10, color: '#FF6B6B', dir: 'right', home: { x: 9, y: 10 } },
-      { x: 10, y: 10, color: '#FFB5C2', dir: 'up', home: { x: 10, y: 10 } },
-      { x: 11, y: 10, color: '#B5D8EB', dir: 'down', home: { x: 11, y: 10 } },
+      { x: 9 * CW + CW/2, y: 10 * CH + CH/2, color: '#FF6B6B', dir: 'up' },
+      { x: 10 * CW + CW/2, y: 10 * CH + CH/2, color: '#FFB5C2', dir: 'up' },
+      { x: 11 * CW + CW/2, y: 10 * CH + CH/2, color: '#B5D8EB', dir: 'up' },
     ];
     score = 0; lives = 3; gameRunning = true;
     direction = 'right'; nextDirection = 'right';
@@ -97,44 +93,52 @@
     animFrameId = requestAnimationFrame(gameLoop);
   }
 
-  function isWall(x, y) {
-    const col = Math.round(x), row = Math.round(y);
+  function isWall(px, py) {
+    const col = Math.floor(px / CW), row = Math.floor(py / CH);
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return true;
     return maze[row][col] === 1;
   }
 
-  function movePacman() {
-    const spd = 0.13;
-    // Snap to grid when near center for clean turning
-    const sx = Math.round(pacman.x), sy = Math.round(pacman.y);
-    if (Math.abs(pacman.x - sx) < 0.15 && Math.abs(pacman.y - sy) < 0.15) {
-      pacman.x = sx; pacman.y = sy;
-    }
+  // Check if a pixel position is fully inside a non-wall cell
+  function canMoveTo(px, py, r) {
+    r = r || CW * 0.4;
+    return !isWall(px - r, py - r) && !isWall(px + r, py - r) && !isWall(px - r, py + r) && !isWall(px + r, py + r);
+  }
 
-    // Try to turn to nextDirection
+  function movePacman() {
+    const spd = 2.5;
+
+    // Try to turn to nextDirection if close to grid-aligned
     if (nextDirection !== direction) {
       const [dx, dy] = MOVES[nextDirection];
-      const nx = pacman.x + dx * 0.5, ny = pacman.y + dy * 0.5;
-      if (!isWall(nx, ny)) direction = nextDirection;
+      // Check if we can move in nextDirection from current position
+      const nx = pacman.x + dx * spd, ny = pacman.y + dy * spd;
+      if (canMoveTo(nx, ny)) direction = nextDirection;
     }
 
     // Move forward
     const [dx, dy] = MOVES[direction];
     const nx = pacman.x + dx * spd, ny = pacman.y + dy * spd;
-    if (!isWall(nx, ny)) { pacman.x = nx; pacman.y = ny; }
+    if (canMoveTo(nx, ny)) { pacman.x = nx; pacman.y = ny; }
+    else {
+      // Slide along wall
+      if (dx !== 0 && canMoveTo(pacman.x + dx * spd, pacman.y)) { pacman.x += dx * spd; }
+      else if (dy !== 0 && canMoveTo(pacman.x, pacman.y + dy * spd)) { pacman.y += dy * spd; }
+    }
 
     // Tunnel wrap
-    if (pacman.x < -0.5) pacman.x = COLS - 0.5;
-    if (pacman.x > COLS + 0.5) pacman.x = -0.5;
+    if (pacman.x < -15) pacman.x = W + 15;
+    if (pacman.x > W + 15) pacman.x = -15;
 
     // Eat dots
-    const col = Math.round(pacman.x), row = Math.round(pacman.y);
-    const cell = maze[row] && maze[row][col];
-    if (cell === 2) { maze[row][col] = 0; dotsRemaining--; score += 10; scoreEl.textContent = score; }
-    if (cell === 3) { maze[row][col] = 0; dotsRemaining--; score += 50; scoreEl.textContent = score; frightenedEnd = performance.now() + 6000; }
+    const col = Math.round((pacman.x - CW/2) / CW), row = Math.round((pacman.y - CH/2) / CH);
+    if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+      if (maze[row][col] === 2) { maze[row][col] = 0; dotsRemaining--; score += 10; scoreEl.textContent = score; }
+      if (maze[row][col] === 3) { maze[row][col] = 0; dotsRemaining--; score += 50; scoreEl.textContent = score; frightenedEnd = performance.now() + 6000; }
+    }
 
-    // Mouth animation
-    pacman.mouthAngle += pacman.mouthOpen ? 0.06 : -0.06;
+    // Mouth
+    pacman.mouthAngle += pacman.mouthOpen ? 0.08 : -0.08;
     if (pacman.mouthAngle > 0.8) pacman.mouthOpen = false;
     if (pacman.mouthAngle < 0.05) pacman.mouthOpen = true;
   }
@@ -142,63 +146,58 @@
   function moveGhost(g) {
     const now = performance.now();
     const frightened = now < frightenedEnd;
-    const spd = frightened ? 0.05 : 0.09;
-    const dirs = ['right','left','up','down'];
+    const spd = frightened ? 1.2 : 2;
 
-    // Get available dirs (avoid reverse unless stuck)
+    const dirs = ['right','left','up','down'];
     let avail = dirs.filter(d => {
       const [dx, dy] = MOVES[d];
-      return !isWall(g.x + dx * 0.5, g.y + dy * 0.5);
-    }).filter(d => d !== REVERSE[g.dir]);
-    if (avail.length === 0) avail = dirs.filter(d => {
-      const [dx, dy] = MOVES[d];
-      return !isWall(g.x + dx * 0.5, g.y + dy * 0.5);
+      return canMoveTo(g.x + dx * spd, g.y + dy * spd);
     });
+    // Avoid reverse
+    const revFree = avail.filter(d => d !== REVERSE[g.dir]);
+    if (revFree.length > 0) avail = revFree;
 
-    if (avail.length === 0) { g.dir = pickRandom(dirs); return; }
+    if (avail.length === 0) return;
 
     if (frightened) g.dir = pickRandom(avail);
     else {
-      // Chase pacman
       let best = avail[0], bestD = Infinity;
       avail.forEach(d => {
         const [dx, dy] = MOVES[d];
-        const dist = Math.hypot(g.x + dx - pacman.x, g.y + dy - pacman.y);
+        const dist = Math.hypot(g.x + dx * spd - pacman.x, g.y + dy * spd - pacman.y);
         if (dist < bestD) { bestD = dist; best = d; }
       });
       g.dir = best;
     }
 
     const [dx, dy] = MOVES[g.dir];
-    g.x += dx * spd; g.y += dy * spd;
+    if (canMoveTo(g.x + dx * spd, g.y + dy * spd)) { g.x += dx * spd; g.y += dy * spd; }
   }
 
   function checkCollisions() {
     const now = performance.now();
     for (const g of ghosts) {
       const dist = Math.hypot(pacman.x - g.x, pacman.y - g.y);
-      if (dist < 0.7) {
+      if (dist < CW * 0.7) {
         if (now < frightenedEnd) {
           score += 200; scoreEl.textContent = score;
-          g.x = 10; g.y = 10;
+          g.x = 10 * CW + CW/2; g.y = 10 * CH + CH/2;
         } else {
-          lives--;
-          livesEl.textContent = lives;
+          lives--; livesEl.textContent = lives;
           if (lives <= 0) { endGame(); return; }
-          pacman.x = 10; pacman.y = 15; direction = 'right'; nextDirection = 'right';
-          ghosts.forEach(gh => { gh.x = 10; gh.y = 10; });
+          pacman.x = 10 * CW + CW/2; pacman.y = 15 * CH + CH/2;
+          direction = 'right'; nextDirection = 'right';
+          ghosts.forEach(gh => { gh.x = 10 * CW + CW/2; gh.y = 10 * CH + CH/2; });
           frightenedEnd = 0;
         }
       }
     }
   }
 
-  let frame = 0;
   function gameLoop() {
     if (!gameRunning) return;
-    frame++;
     movePacman();
-    if (frame % 1 === 0) ghosts.forEach(moveGhost);
+    ghosts.forEach(moveGhost);
     checkCollisions();
     draw();
 
@@ -213,19 +212,26 @@
 
   function draw() {
     const now = performance.now();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#111122'; ctx.fillRect(0, 0, W, H);
 
     for (let r = 0; r < ROWS; r++)
       for (let c = 0; c < COLS; c++) {
-        const x = c * cellW, y = r * cellH;
+        const x = c * CW, y = r * CH;
         if (maze[r][c] === 1) {
-          ctx.fillStyle = '#16213E'; ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+          ctx.fillStyle = '#1a1a40'; ctx.fillRect(x + 1, y + 1, CW - 2, CH - 2);
+          ctx.fillStyle = '#252555'; ctx.fillRect(x + 1, y + 1, CW - 2, 3);
+          ctx.fillRect(x + 1, y + 1, 3, CH - 2);
         } else if (maze[r][c] === 2) {
-          ctx.fillStyle = '#FFDAC1'; ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#FFDAC1';
+          ctx.beginPath(); ctx.arc(x + CW/2, y + CH/2, 3, 0, Math.PI * 2); ctx.fill();
         } else if (maze[r][c] === 3) {
-          ctx.fillStyle = '#FFF1B0'; ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.22, 0, Math.PI * 2); ctx.fill();
-          if (Math.floor(now / 300) % 2) { ctx.fillStyle = '#1a1a2e'; ctx.beginPath(); ctx.arc(x + cellW / 2, y + cellH / 2, cellW * 0.13, 0, Math.PI * 2); ctx.fill(); }
+          ctx.fillStyle = '#FFF1B0';
+          ctx.beginPath(); ctx.arc(x + CW/2, y + CH/2, 7, 0, Math.PI * 2); ctx.fill();
+          if (Math.floor(now / 300) % 2) {
+            ctx.fillStyle = '#111122';
+            ctx.beginPath(); ctx.arc(x + CW/2, y + CH/2, 4, 0, Math.PI * 2); ctx.fill();
+          }
         }
       }
 
@@ -233,27 +239,28 @@
 
     // Ghosts
     ghosts.forEach(g => {
-      const gx = g.x * cellW + cellW / 2, gy = g.y * cellH + cellH / 2;
       ctx.fillStyle = frightened ? '#6B8EFF' : g.color;
-      ctx.beginPath(); ctx.arc(gx, gy, cellW * 0.38, Math.PI, 0); ctx.lineTo(gx + cellW * 0.38, gy + cellH * 0.35);
-      ctx.arc(gx, gy + cellH * 0.1, cellW * 0.38, 0, Math.PI, true); ctx.closePath(); ctx.fill();
+      // Body
+      ctx.beginPath(); ctx.arc(g.x, g.y, CW * 0.4, Math.PI, 0); ctx.lineTo(g.x + CW * 0.4, g.y + CH * 0.32);
+      ctx.arc(g.x, g.y + CH * 0.1, CW * 0.4, 0, Math.PI, true); ctx.closePath(); ctx.fill();
+      // Eyes
       ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(gx - cellW * 0.12, gy - cellH * 0.1, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(gx + cellW * 0.12, gy - cellH * 0.1, cellW * 0.1, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#1a1a2e';
-      ctx.beginPath(); ctx.arc(gx - cellW * 0.1, gy - cellH * 0.12, cellW * 0.05, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(gx + cellW * 0.14, gy - cellH * 0.12, cellW * 0.05, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(g.x - 5, g.y - 4, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(g.x + 5, g.y - 4, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111122';
+      ctx.beginPath(); ctx.arc(g.x - 4, g.y - 5, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(g.x + 6, g.y - 5, 2, 0, Math.PI * 2); ctx.fill();
     });
 
     // Pacman
-    const px = pacman.x * cellW + cellW / 2, py = pacman.y * cellH + cellH / 2;
     ctx.fillStyle = '#FFE066';
     const ma = pacman.mouthAngle * Math.PI;
     let sa = ma, ea = 2 * Math.PI - ma;
     if (direction === 'left') { sa += Math.PI; ea += Math.PI; }
     else if (direction === 'up') { sa += Math.PI * 1.5; ea += Math.PI * 1.5; }
     else if (direction === 'down') { sa += Math.PI * 0.5; ea += Math.PI * 0.5; }
-    ctx.beginPath(); ctx.moveTo(px, py); ctx.arc(px, py, cellW * 0.42, sa, ea); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(pacman.x, pacman.y);
+    ctx.arc(pacman.x, pacman.y, CW * 0.4, sa, ea); ctx.closePath(); ctx.fill();
   }
 
   function endGame() {
@@ -271,7 +278,6 @@
   detectSwipe(canvas, (dir) => { if (gameRunning) nextDirection = dir; });
   setupDpad({ up: () => { if (gameRunning) nextDirection = 'up'; }, down: () => { if (gameRunning) nextDirection = 'down'; }, left: () => { if (gameRunning) nextDirection = 'left'; }, right: () => { if (gameRunning) nextDirection = 'right'; } });
 
-  window.addEventListener('resize', resize);
   init();
 })();
 </script>
