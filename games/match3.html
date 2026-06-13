@@ -72,19 +72,20 @@
     const dr = Math.abs(r - selected.r), dc = Math.abs(c - selected.c);
     if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
       // Swap
+      animating = true;
       swap(selected.r, selected.c, r, c);
       render();
       const matches = findMatches();
       if (matches.size > 0) {
-        animating = true;
         processMatches(matches, () => { animating = false; checkLevelUp(); });
       } else {
         // Swap back
-        setTimeout(() => { swap(selected.r, selected.c, r, c); render(); }, 200);
+        setTimeout(() => { swap(selected.r, selected.c, r, c); render(); animating = false; }, 250);
       }
+    } else {
+      render(); // Just select the new cell
     }
     selected = null;
-    render();
   }
 
   function swap(r1, c1, r2, c2) { const tmp = grid[r1][c1]; grid[r1][c1] = grid[r2][c2]; grid[r2][c2] = tmp; }
