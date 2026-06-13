@@ -68,6 +68,7 @@
   function init() {
     gameOver = false; firstClick = true; revealed = 0; flagged = 0; seconds = 0;
     clearInterval(timerInterval);
+    timerInterval = null;
     timerEl.textContent = '000'; mineCountEl.textContent = MINES; resetBtn.textContent = '😊';
     board = Array.from({ length: ROWS }, (_, r) => Array.from({ length: COLS }, (_, c) => ({ mine: false, revealed: false, flagged: false, adjacentMines: 0, r, c })));
     render();
